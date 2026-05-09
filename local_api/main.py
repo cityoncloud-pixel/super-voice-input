@@ -6,6 +6,7 @@ from uuid import uuid4
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+from starlette.middleware.cors import CORSMiddleware
 
 from local_api.adapters import TemplateRewriteAdapter, VoiceSTTAdapter
 from local_api.config import settings
@@ -14,6 +15,15 @@ from local_api.service import VoiceService
 from local_api.storage import SQLiteStore
 
 app = FastAPI(title=settings.APP_NAME, version=settings.APP_VERSION)
+
+# Electron 页面跑在 http://127.0.0.1:<随机端口>，请求 API :8000 为跨域，必须放行 CORS，否则前端 fetch 会被浏览器静默拦截。
+app.add_middleware(
+    CORSMiddleware,
+    allow_origin_regex=r"http://(127\.0\.0\.1|localhost):\d+",
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 service = VoiceService(
     store=SQLiteStore(db_path=settings.DB_PATH),
     stt=VoiceSTTAdapter(),

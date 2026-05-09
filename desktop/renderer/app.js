@@ -2,7 +2,8 @@
  * 桌面端：新建会话 → 多段录音（波形）→ 每段停止后自动上传+豆包转写 → 一键 DeepSeek 生成终稿。
  */
 
-const apiBase = window.svi.apiBase;
+const apiBase =
+  (typeof window !== "undefined" && window.svi && window.svi.apiBase) || "http://127.0.0.1:8000";
 
 const DEFAULT_STT = "doubao";
 const DEFAULT_REWRITE = "deepseek";
@@ -51,7 +52,18 @@ async function api(path, options = {}) {
   if (options.body && typeof options.body === "string" && !headers["Content-Type"]) {
     headers["Content-Type"] = "application/json";
   }
-  const resp = await fetch(`${apiBase}${path}`, { ...options, headers });
+  let resp;
+  try {
+    resp = await fetch(`${apiBase}${path}`, { ...options, headers });
+  } catch (e) {
+    const name = e && e.name;
+    const detail = e && e.message ? e.message : String(e);
+    const hint =
+      name === "TypeError" || /fetch|network|Failed to fetch/i.test(detail)
+        ? `无法连接 API：${apiBase}。\n\n若已手动启动后端，请确认端口与 .env / 环境变量 SVI_API_PORT 一致；若端口占用(10048)，请关掉重复的 uvicorn。\n\n手动启动（端口请与上方一致）：\npython -m uvicorn local_api.main:app --host 127.0.0.1 --port <端口>`
+        : detail;
+    throw new Error(hint);
+  }
   if (!resp.ok) {
     const body = await resp.text();
     throw new Error(`${resp.status} ${body}`);
@@ -322,6 +334,7 @@ function formatTime(sec) {
 }
 
 /** ---------- Recording ---------- */
+function wireEvents() {
 el.createSessionBtn.onclick = async () => {
   try {
     const mode = (el.sessionMode.value || "").trim();
@@ -551,6 +564,7 @@ async function refreshHistoryList() {
 }
 
 el.refreshHistoryBtn.onclick = () => refreshHistoryList();
+}
 
 /** ---------- Tabs ---------- */
 function setupTabs() {
@@ -572,6 +586,7 @@ window.addEventListener("resize", () => {
 
 async function init() {
   bindEl();
+  wireEvents();
   seedModeSelects();
   setupTabs();
   requestAnimationFrame(() => drawFlatLine());
