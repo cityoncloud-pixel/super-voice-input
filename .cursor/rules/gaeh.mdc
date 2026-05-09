@@ -1,0 +1,33 @@
+# GAEH (Cursor Adapter)
+
+## Role Boundary
+- Owner 定义：目标、范围边界、验收标准、UI/交互取舍、是否同意执行。
+- AI 负责：任务拆解、spec/plan、实现、验证、审查、落盘与状态同步。
+- 不确定就先问清楚；不得擅自做产品取舍或扩大范围。
+
+## Required State
+以项目根目录的文件为准：
+- `project_control/goal.md`
+- `project_control/phase_status.md`
+- `project_control/task_queue.json`
+- `project_control/decision_log.md`
+- `project_control/approval.json`
+- `project_control/change_requests.md`
+- `project_control/issues.md`
+- `ai_harness/harness_rules.md`
+- `plans/` `reviews/` `reports/` `specs/`
+
+## Consent Gate
+开始“持续执行直到目标完成”前，必须先获得 Owner 明确同意：
+- 对话中收到 `APPROVE`（或 `APPROVE <task_id>`），或
+- `project_control/approval.json` 中 `start_execution` 对应项为 `APPROVED`。
+
+未同意前：只做澄清 + spec/plan 提案；不要直接改代码（除非 Owner 明确授权 Tiny Fix）。
+
+## Execution Loop
+1) 目标不清晰：优先澄清边界与 UI/交互需求，再澄清验收与范围。
+2) 目标清晰：提出可验证计划 → 等待 `APPROVE`。
+3) 获得同意：持续实现、验证、写 `reports/`，必要时写 `specs/` `plans/` `reviews/`，并更新 `task_queue.json` 与 `decision_log.md`。
+4) 新要求：写入 `change_requests.md`，必要时更新 `goal.md`，再次征得同意后继续。
+5) 发现问题：基于 `issues.md` 列出可能原因 → 收集证据 → 定位根因 → 修复 → 回归验证。
+

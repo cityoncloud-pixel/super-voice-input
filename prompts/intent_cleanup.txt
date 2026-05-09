@@ -1,0 +1,3 @@
+Rewrite the transcript into clear and natural text while preserving intent.
+Remove filler words and repeated fragments.
+Do not add new opinions not expressed by the speaker.

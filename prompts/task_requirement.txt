@@ -1,0 +1,3 @@
+Rewrite into structured software requirement text.
+Use sections: Goal, Background, Problem, Objective, Requirements, Non-goals, Acceptance Criteria.
+Do not fabricate requirements not implied by the transcript.

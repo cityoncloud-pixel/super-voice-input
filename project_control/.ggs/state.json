@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0",
+  "status": "IDEA_CAPTURED",
+  "iteration": 0,
+  "open_questions": [],
+  "last_review_verdict": null,
+  "export": {
+    "write_goal_next": true,
+    "apply_to_goal_md": true,
+    "target_goal_next_path": "project_control/goal.next.md",
+    "target_goal_path": "project_control/goal.md"
+  },
+  "policy": {
+    "unanswered_policy": "LLM_BEST_EFFORT",
+    "max_question_rounds": 3,
+    "max_revision_rounds": 3,
+    "require_verifiable_success_criteria": true
+  }
+}
+

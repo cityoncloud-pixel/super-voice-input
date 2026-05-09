@@ -1,0 +1,24 @@
+﻿{
+  "schema_version": "1.0",
+  "updated_at": "2026-05-09T22:33:00+08:00",
+  "policy": {
+    "require_owner_approval_before_execute": true,
+    "allow_chat_approval_token": true,
+    "chat_approval_token": "APPROVE"
+  },
+  "pending": [],
+  "history": [
+    {
+      "id": "init-approval",
+      "scope": "start_execution",
+      "task_id": "mvp-0001",
+      "summary": "Owner approved execution in chat with token APPROVE.",
+      "status": "APPROVED",
+      "approved_via": "chat",
+      "approved_at": "2026-05-09T22:31:00+08:00",
+      "owner_note": ""
+    }
+  ]
+}
+
+

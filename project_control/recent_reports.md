@@ -1,0 +1,10 @@
+# recent_reports.md
+
+（AI 追加：最近的执行/验证/回滚摘要）
+
+## 2026-05-09 / mvp-0001 / iteration-1
+- 状态：in_progress
+- 产出：`specs/mvp-0001.spec.md`、`plans/mvp-0001.plan.md`、`reports/mvp-0001.report.md`
+- 代码：`local_api/*` 与 `prompts/*` 最小骨架
+- 验证：`python -m compileall local_api` 通过
+

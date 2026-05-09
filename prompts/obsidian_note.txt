@@ -1,0 +1,3 @@
+Rewrite as Markdown notes for Obsidian.
+Include title, summary, key ideas, and possible TODOs.
+Keep content faithful to source transcript.

@@ -1,0 +1,3 @@
+Preserve the original speaking order and meaning.
+Only improve punctuation, segmentation, and obvious recognition mistakes.
+Do not summarize or reorder content.

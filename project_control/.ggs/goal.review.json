@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "verdict": "BLOCKED",
+  "summary": "Not reviewed yet.",
+  "checks": [],
+  "open_questions": [],
+  "assumptions_needed": [],
+  "auto_revisions": [],
+  "handoff": {
+    "recommended_route": "spec_first",
+    "seed_tasks": [],
+    "spec_outline": [],
+    "verification_plan": []
+  }
+}
+
