@@ -76,9 +76,19 @@ function setStatus(text) {
 }
 
 /** ---------- Modes ---------- */
+function builtinModes() {
+  return Object.keys(MODE_LABELS);
+}
+
+/**
+ * @param {HTMLSelectElement | null} selectEl
+ * @param {unknown} modes - API returns string[]; invalid/empty uses builtin list
+ */
 function fillModeSelect(selectEl, modes) {
+  if (!selectEl) return;
+  const list = Array.isArray(modes) && modes.length > 0 ? modes : builtinModes();
   selectEl.innerHTML = "";
-  for (const m of modes) {
+  for (const m of list) {
     const opt = document.createElement("option");
     opt.value = m;
     opt.textContent = MODE_LABELS[m] || m;
@@ -86,15 +96,20 @@ function fillModeSelect(selectEl, modes) {
   }
 }
 
+/** 页面一加载就有选项，避免等网络期间下拉为空；也与后端枚举对齐。 */
+function seedModeSelects() {
+  fillModeSelect(el.sessionMode, builtinModes());
+  fillModeSelect(el.refinalizeMode, builtinModes());
+}
+
 async function loadModes() {
   try {
     const data = await api("/modes");
-    fillModeSelect(el.sessionMode, data.modes);
-    fillModeSelect(el.refinalizeMode, data.modes);
-  } catch {
-    const fallback = Object.keys(MODE_LABELS);
-    fillModeSelect(el.sessionMode, fallback);
-    fillModeSelect(el.refinalizeMode, fallback);
+    fillModeSelect(el.sessionMode, data?.modes);
+    fillModeSelect(el.refinalizeMode, data?.modes);
+  } catch (e) {
+    console.warn("[SVI] /modes 不可用，使用内置整理模式列表", e);
+    seedModeSelects();
   }
 }
 
@@ -309,9 +324,14 @@ function formatTime(sec) {
 /** ---------- Recording ---------- */
 el.createSessionBtn.onclick = async () => {
   try {
+    const mode = (el.sessionMode.value || "").trim();
+    if (!mode) {
+      showToast("请先选择「整理模式」（若下拉为空请重启应用或检查 API 是否已启动）。", true);
+      return;
+    }
     const body = {
       title: el.sessionTitle.value.trim() || `会话-${new Date().toLocaleString("zh-CN")}`,
-      mode: el.sessionMode.value,
+      mode,
       rewrite_provider: DEFAULT_REWRITE,
     };
     const session = await api("/sessions", { method: "POST", body: JSON.stringify(body) });
@@ -552,6 +572,7 @@ window.addEventListener("resize", () => {
 
 async function init() {
   bindEl();
+  seedModeSelects();
   setupTabs();
   requestAnimationFrame(() => drawFlatLine());
   await loadModes();

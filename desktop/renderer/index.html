@@ -38,7 +38,12 @@
             </label>
             <label class="field grow">
               <span class="label">整理模式（DeepSeek 按此生成终稿）</span>
-              <select id="sessionMode"></select>
+              <select id="sessionMode" required>
+                <option value="intent_cleanup">原意清理 · 适合对话框粘贴</option>
+                <option value="obsidian_note">Obsidian 笔记 · Markdown</option>
+                <option value="task_requirement">任务/需求 · 协作开发</option>
+                <option value="faithful_transcript">忠实转录 · 少改动</option>
+              </select>
             </label>
             <label class="field">
               <span class="label">转写引擎</span>
@@ -112,7 +117,12 @@
             <details class="advanced">
               <summary>高级：用另一种整理模式重新生成</summary>
               <div class="controls-row margin-top">
-                <select id="refinalizeMode"></select>
+                <select id="refinalizeMode">
+                  <option value="intent_cleanup">原意清理 · 适合对话框粘贴</option>
+                  <option value="obsidian_note">Obsidian 笔记 · Markdown</option>
+                  <option value="task_requirement">任务/需求 · 协作开发</option>
+                  <option value="faithful_transcript">忠实转录 · 少改动</option>
+                </select>
                 <button type="button" id="refinalizeBtn" class="btn">按所选模式重新整理</button>
               </div>
             </details>
