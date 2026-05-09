@@ -52,5 +52,6 @@ Current scope:
 - `npm install`
 - `npm run desktop` — **会自动在本机启动** `uvicorn`（工作目录为仓库根目录）。若你已手动起 API，可先设置环境变量 `SVI_SKIP_BACKEND=1` 再启动 Electron。
 - 托盘图标 + **Ctrl+Shift+V** 显示/隐藏窗口；关闭窗口默认隐藏到托盘（托盘菜单退出会结束后端进程）。
+- **界面流程**：① 新建会话并选择整理模式 → ② 录音（实时波形）→ 每段「停止」后自动上传并由豆包转写 → ③ 列表查看片段 → ④ 一键「DeepSeek 生成终稿」。豆包 / DeepSeek 为固定选项，无需手输英文 id。
 - 录音上传后会 **默认自动转写**（`upload?auto_transcribe=true`）。
 

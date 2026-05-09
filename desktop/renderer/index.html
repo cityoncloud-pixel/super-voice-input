@@ -3,60 +3,146 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Super Voice Input</title>
+    <title>超级语音输入</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <header>
-      <h1>Super Voice Input</h1>
-      <div id="health">API 状态检查中...</div>
+    <header class="top-bar">
+      <div class="brand">
+        <span class="brand-title">超级语音输入</span>
+        <span id="health" class="badge badge-muted">连接中…</span>
+      </div>
+      <nav class="tabs">
+        <button type="button" class="tab active" data-tab="workflow">工作流程</button>
+        <button type="button" class="tab" data-tab="history">历史会话</button>
+      </nav>
     </header>
-    <main>
-      <section class="panel">
-        <h2>创建会话</h2>
-        <div class="row">
-          <input id="sessionTitle" placeholder="会话标题" />
-          <select id="sessionMode"></select>
-          <input id="rewriteProvider" placeholder="rewrite provider" value="deepseek" />
-          <button id="createSessionBtn">创建</button>
-        </div>
+
+    <div id="toast" class="toast" hidden></div>
+
+    <main class="layout">
+      <!-- 工作流程 -->
+      <section id="panel-workflow" class="tab-panel active">
+        <p id="statusLine" class="status-line">请先新建会话，再开始录音。每一段停止后会自动上传并由豆包转写。</p>
+
+        <!-- ① 会话 -->
+        <article class="card">
+          <div class="card-head">
+            <span class="step">1</span>
+            <h2>会话与输出样式</h2>
+          </div>
+          <div class="card-body controls-row">
+            <label class="field">
+              <span class="label">标题（可选）</span>
+              <input id="sessionTitle" type="text" placeholder="例如：本周想法整理" />
+            </label>
+            <label class="field grow">
+              <span class="label">整理模式（DeepSeek 按此生成终稿）</span>
+              <select id="sessionMode"></select>
+            </label>
+            <label class="field">
+              <span class="label">转写引擎</span>
+              <select id="sttProvider">
+                <option value="doubao" selected>豆包 · 语音转写</option>
+              </select>
+            </label>
+            <label class="field">
+              <span class="label">整理引擎</span>
+              <select id="rewriteProvider">
+                <option value="deepseek" selected>DeepSeek · 文稿整理</option>
+              </select>
+            </label>
+            <button type="button" id="createSessionBtn" class="btn btn-primary">新建会话</button>
+          </div>
+          <div id="sessionSummary" class="session-summary muted">尚未创建会话</div>
+        </article>
+
+        <!-- ② 录音 -->
+        <article class="card">
+          <div class="card-head">
+            <span class="step">2</span>
+            <h2>录音</h2>
+          </div>
+          <div class="card-body">
+            <div class="wave-wrap">
+              <canvas id="waveCanvas" width="900" height="120"></canvas>
+              <div class="wave-overlay">
+                <span id="recordTimer" class="timer">00:00</span>
+              </div>
+            </div>
+            <p class="hint">波形实时反映麦克风输入；未录音时为直线属正常现象。</p>
+            <div class="controls-row actions">
+              <button type="button" id="startRecordBtn" class="btn btn-accent" disabled>● 开始录音</button>
+              <button type="button" id="stopRecordBtn" class="btn" disabled>■ 停止本段并转写</button>
+            </div>
+            <p class="hint subtle">
+              停止一段后会<strong>自动上传 → 豆包转写</strong>。可多次「开始录音」补充多段。
+            </p>
+          </div>
+        </article>
+
+        <!-- ③ 片段 -->
+        <article class="card">
+          <div class="card-head">
+            <span class="step">3</span>
+            <h2>片段进度</h2>
+          </div>
+          <div class="card-body">
+            <div id="segments" class="segment-list"></div>
+          </div>
+        </article>
+
+        <!-- ④ 终稿 -->
+        <article class="card card-final">
+          <div class="card-head">
+            <span class="step">4</span>
+            <h2>DeepSeek 生成终稿</h2>
+          </div>
+          <div class="card-body">
+            <div class="controls-row">
+              <button type="button" id="finalizeBtn" class="btn btn-primary btn-large" disabled>
+                合并全部转写并由 DeepSeek 生成终稿
+              </button>
+              <button type="button" id="copyBtn" class="btn" disabled>复制终稿</button>
+            </div>
+            <label class="field full">
+              <span class="label">输出预览</span>
+              <textarea id="finalText" rows="14" readonly placeholder="生成后将显示在这里…"></textarea>
+            </label>
+            <details class="advanced">
+              <summary>高级：用另一种整理模式重新生成</summary>
+              <div class="controls-row margin-top">
+                <select id="refinalizeMode"></select>
+                <button type="button" id="refinalizeBtn" class="btn">按所选模式重新整理</button>
+              </div>
+            </details>
+          </div>
+        </article>
+
+        <details class="advanced flat">
+          <summary>高级：手动填写音频路径（一般不常用）</summary>
+          <div class="controls-row margin-top">
+            <input id="audioPath" type="text" placeholder="https://… 或服务器可访问的路径" class="grow" />
+            <input id="audioDuration" type="number" step="0.1" placeholder="时长(s)" style="width: 6rem" />
+            <button type="button" id="addSegmentBtn" class="btn">仅添加片段记录</button>
+          </div>
+        </details>
       </section>
 
-      <section class="panel">
-        <h2>当前会话</h2>
-        <div id="currentSession"></div>
-        <div class="row">
-          <input id="audioPath" placeholder="本地路径或 https 音频 URL" />
-          <input id="audioDuration" placeholder="时长（秒）" type="number" step="0.1" value="3.0" />
-          <input id="sttProvider" placeholder="stt provider" value="doubao" />
-          <button id="addSegmentBtn">新增片段</button>
-          <button id="startRecordBtn">开始录音</button>
-          <button id="stopRecordBtn">停止并上传</button>
-          <button id="finalizeBtn">完成整理</button>
-        </div>
-      </section>
-
-      <section class="panel">
-        <h2>片段列表</h2>
-        <div id="segments"></div>
-      </section>
-
-      <section class="panel">
-        <h2>最终结果</h2>
-        <textarea id="finalText" rows="12"></textarea>
-        <div class="row">
-          <button id="copyBtn">复制结果</button>
-          <select id="refinalizeMode"></select>
-          <button id="refinalizeBtn">按新模式再整理</button>
-        </div>
-      </section>
-
-      <section class="panel">
-        <h2>历史会话</h2>
-        <button id="refreshHistoryBtn">刷新历史</button>
-        <div id="history"></div>
+      <!-- 历史 -->
+      <section id="panel-history" class="tab-panel">
+        <article class="card">
+          <div class="card-head">
+            <h2>历史会话</h2>
+            <button type="button" id="refreshHistoryBtn" class="btn btn-small">刷新</button>
+          </div>
+          <div class="card-body">
+            <div id="history" class="history-list"></div>
+          </div>
+        </article>
       </section>
     </main>
+
     <script src="./app.js"></script>
   </body>
 </html>

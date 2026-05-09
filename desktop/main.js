@@ -1,4 +1,12 @@
-const { app, BrowserWindow, Tray, Menu, nativeImage, globalShortcut } = require("electron");
+const {
+  app,
+  BrowserWindow,
+  Tray,
+  Menu,
+  nativeImage,
+  globalShortcut,
+  session,
+} = require("electron");
 const path = require("path");
 const { spawn } = require("child_process");
 
@@ -59,6 +67,14 @@ function toggleWindow() {
 }
 
 app.whenReady().then(() => {
+  session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
+    if (permission === "media" || permission === "microphone") {
+      callback(true);
+      return;
+    }
+    callback(false);
+  });
+
   startBackend();
 
   const tinyPng = nativeImage.createFromDataURL(
