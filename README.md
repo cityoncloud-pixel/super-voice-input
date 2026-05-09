@@ -32,7 +32,12 @@
 
 - 转写：`provider=doubao`，必须配置 `DOUBAO_API_KEY`、`DOUBAO_RESOURCE_ID`（控制台）。接口遵循官方「录音文件识别标准版」：`submit` → `query` 轮询，直至 `X-Api-Status-Code=20000000`。参见火山文档：[大模型录音文件识别标准版API](https://www.volcengine.com/docs/6561/1354868)。
 - 豆包云端只能访问 **公网可达** 的音频 URL。推荐两种方式之一：
-  1. **内网穿透**：把本机 8000 端口映射出去（如 ngrok / cloudflared），在 `.env` 设置 `SVI_PUBLIC_BASE_URL=https://你的隧道域名`（无尾部斜杠）。同一端口需提供 `GET /files/audio/{session_id}/{filename}`（已实现）。
+  1. **内网穿透（ngrok 联调）**：
+     - 终端 A：在项目根启动 API：`python -m uvicorn local_api.main:app --host 127.0.0.1 --port 8000`（端口与 `.env` 里 `SVI_API_PORT` 一致）。
+     - 终端 B：`ngrok http 8000`，复制 **`https://xxxx.ngrok-free.app`**（以 ngrok 控制台为准）。
+     - 在 `.env` 设置 **`SVI_PUBLIC_BASE_URL=https://xxxx.ngrok-free.app`**（无尾部斜杠），**重启 uvicorn**。
+     - 自检：浏览器或 `curl` 访问 `https://xxxx.ngrok-free.app/health` 应返回 JSON；录音转写时豆包会请求 `https://xxxx.ngrok-free.app/files/audio/{session_id}/{filename}`（本仓库已实现该路由）。
+     - 单元测试：`pytest tests/test_doubao_audio_url.py -q`（校验 URL 拼接，不调火山）。
   2. **自建前缀**：若已有对象存储/CDN URL，设置 `DOUBAO_AUDIO_URL_PREFIX`，使本地 `data/audio/...` 路径能映射成完整 https URL。
 - 改写：`provider=deepseek`，必须配置 `DEEPSEEK_API_KEY`。
 
