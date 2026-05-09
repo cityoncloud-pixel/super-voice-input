@@ -17,7 +17,7 @@
         <div class="row">
           <input id="sessionTitle" placeholder="会话标题" />
           <select id="sessionMode"></select>
-          <input id="rewriteProvider" placeholder="rewrite provider" value="mock-rewrite" />
+          <input id="rewriteProvider" placeholder="rewrite provider" value="deepseek" />
           <button id="createSessionBtn">创建</button>
         </div>
       </section>
@@ -26,9 +26,9 @@
         <h2>当前会话</h2>
         <div id="currentSession"></div>
         <div class="row">
-          <input id="audioPath" placeholder="音频文件路径（先用 mock 路径）" />
+          <input id="audioPath" placeholder="本地路径或 https 音频 URL" />
           <input id="audioDuration" placeholder="时长（秒）" type="number" step="0.1" value="3.0" />
-          <input id="sttProvider" placeholder="stt provider" value="mock-stt" />
+          <input id="sttProvider" placeholder="stt provider" value="doubao" />
           <button id="addSegmentBtn">新增片段</button>
           <button id="startRecordBtn">开始录音</button>
           <button id="stopRecordBtn">停止并上传</button>

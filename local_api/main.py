@@ -3,10 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from local_api.adapters import MockSTTAdapter, TemplateRewriteAdapter
+from local_api.adapters import TemplateRewriteAdapter, VoiceSTTAdapter
 from local_api.config import settings
 from local_api.domain import RewriteMode
 from local_api.service import VoiceService
@@ -15,7 +16,7 @@ from local_api.storage import SQLiteStore
 app = FastAPI(title=settings.APP_NAME, version=settings.APP_VERSION)
 service = VoiceService(
     store=SQLiteStore(db_path=settings.DB_PATH),
-    stt=MockSTTAdapter(),
+    stt=VoiceSTTAdapter(),
     rewrite=TemplateRewriteAdapter(templates_dir=settings.PROMPTS_DIR),
 )
 
@@ -50,6 +51,21 @@ def health() -> dict[str, str]:
 @app.get("/modes")
 def list_modes():
     return {"modes": [m.value for m in RewriteMode]}
+
+
+@app.get("/files/audio/{session_id}/{filename}")
+def serve_segment_audio(session_id: str, filename: str):
+    """Serve uploaded segment files so Doubao can fetch via SVI_PUBLIC_BASE_URL."""
+    safe_name = Path(filename).name
+    root = (Path("data") / "audio" / session_id).resolve()
+    target = (root / safe_name).resolve()
+    try:
+        target.relative_to(root)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="invalid path") from exc
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="audio not found")
+    return FileResponse(target)
 
 
 @app.post("/sessions")
@@ -89,6 +105,7 @@ async def upload_segment(
     file: UploadFile = File(...),
     duration_seconds: float = Form(0),
     stt_provider: str = Form(settings.DEFAULT_STT_PROVIDER),
+    auto_transcribe: bool = Query(True),
 ):
     if not service.get_session(session_id):
         raise HTTPException(status_code=404, detail="session not found")
@@ -100,12 +117,15 @@ async def upload_segment(
     content = await file.read()
     target_path.write_bytes(content)
 
-    return service.add_segment(
+    seg = service.add_segment(
         session_id=session_id,
         audio_file_path=str(target_path.as_posix()),
         duration_seconds=duration_seconds,
         stt_provider=stt_provider,
     )
+    if auto_transcribe:
+        seg = service.retry_transcribe(seg.id)
+    return seg
 
 
 @app.post("/segments/{segment_id}/transcribe/retry")

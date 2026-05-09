@@ -31,9 +31,13 @@ let recordingChunks = [];
 let recordingStartAt = 0;
 
 async function api(path, options = {}) {
+  const headers = { ...(options.headers || {}) };
+  if (options.body && typeof options.body === "string" && !headers["Content-Type"]) {
+    headers["Content-Type"] = "application/json";
+  }
   const resp = await fetch(`${apiBase}${path}`, {
-    headers: { "Content-Type": "application/json" },
-    ...options
+    ...options,
+    headers,
   });
   if (!resp.ok) {
     const body = await resp.text();
@@ -164,7 +168,7 @@ el.createSessionBtn.onclick = async () => {
   const body = {
     title: el.sessionTitle.value || "untitled-session",
     mode: el.sessionMode.value,
-    rewrite_provider: el.rewriteProvider.value || "mock-rewrite"
+    rewrite_provider: el.rewriteProvider.value || "deepseek"
   };
   const session = await api("/sessions", { method: "POST", body: JSON.stringify(body) });
   currentSessionId = session.id;
@@ -179,7 +183,7 @@ el.addSegmentBtn.onclick = async () => {
     body: JSON.stringify({
       audio_file_path: el.audioPath.value || `audio/${Date.now()}.wav`,
       duration_seconds: Number(el.audioDuration.value || 0),
-      stt_provider: el.sttProvider.value || "mock-stt"
+      stt_provider: el.sttProvider.value || "doubao"
     })
   });
   await refreshCurrentSession();
@@ -212,11 +216,16 @@ el.stopRecordBtn.onclick = async () => {
   const form = new FormData();
   form.append("file", blob, `seg-${Date.now()}.webm`);
   form.append("duration_seconds", String(duration));
-  form.append("stt_provider", el.sttProvider.value || "mock-stt");
-  await fetch(`${apiBase}/sessions/${currentSessionId}/segments/upload`, {
+  form.append("stt_provider", el.sttProvider.value || "doubao");
+  const up = await fetch(`${apiBase}/sessions/${currentSessionId}/segments/upload?auto_transcribe=true`, {
     method: "POST",
     body: form
   });
+  if (!up.ok) {
+    const t = await up.text();
+    alert(`上传失败: ${up.status} ${t}`);
+    return;
+  }
   await refreshCurrentSession();
 };
 
@@ -234,7 +243,7 @@ el.refinalizeBtn.onclick = async () => {
     method: "POST",
     body: JSON.stringify({
       mode: el.refinalizeMode.value,
-      rewrite_provider: el.rewriteProvider.value || "mock-rewrite"
+      rewrite_provider: el.rewriteProvider.value || "deepseek"
     })
   });
   renderSession(session);

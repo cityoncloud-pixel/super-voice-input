@@ -130,4 +130,5 @@ def test_upload_segment_endpoint():
     assert upload_resp.status_code == 200
     seg = upload_resp.json()
     assert seg["audio_file_path"]
-    assert seg["status"] == "recorded"
+    assert seg["status"] == "transcribed"
+    assert seg["raw_transcript"]

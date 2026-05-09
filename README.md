@@ -20,14 +20,23 @@
 - 发现问题（已完成但不对）：把复现写到 `project_control/issues.md`，AI 先给“可能原因 + 证据收集计划”，定位根因后修复并回归验证。
 - 新要求/变更：追加到 `project_control/change_requests.md`，必要时更新 `project_control/goal.md`，并再次征得同意后继续。
 
-## MVP Local API (current implementation)
+## Super Voice Input — Local API & Providers
+
 - Install deps: `pip install -r requirements.txt`
-- Run API: `uvicorn local_api.main:app --reload`
+- Run API: `uvicorn local_api.main:app --reload --host 0.0.0.0 --port 8000`
 - Open docs: `http://127.0.0.1:8000/docs`
-- Run tests: `pytest -q`
-- Env setup: copy `.env.example` to `.env` and fill keys if needed
-- Provider strategy (adapter-based): STT uses `doubao`, rewrite uses `deepseek`.
-- If `.env` has no provider keys yet, the service falls back to mock output for local flow testing.
+- Run tests: `pytest -q`（测试时会自动设置 `SVI_TEST_MODE`，不使用真实豆包/DeepSeek）
+- Copy `.env.example` → `.env`，填入密钥（勿提交 `.env`）。
+
+**生产行为（非测试）：**
+
+- 转写：`provider=doubao`，必须配置 `DOUBAO_API_KEY`、`DOUBAO_RESOURCE_ID`（控制台）。接口遵循官方「录音文件识别标准版」：`submit` → `query` 轮询，直至 `X-Api-Status-Code=20000000`。参见火山文档：[大模型录音文件识别标准版API](https://www.volcengine.com/docs/6561/1354868)。
+- 豆包云端只能访问 **公网可达** 的音频 URL。推荐两种方式之一：
+  1. **内网穿透**：把本机 8000 端口映射出去（如 ngrok / cloudflared），在 `.env` 设置 `SVI_PUBLIC_BASE_URL=https://你的隧道域名`（无尾部斜杠）。同一端口需提供 `GET /files/audio/{session_id}/{filename}`（已实现）。
+  2. **自建前缀**：若已有对象存储/CDN URL，设置 `DOUBAO_AUDIO_URL_PREFIX`，使本地 `data/audio/...` 路径能映射成完整 https URL。
+- 改写：`provider=deepseek`，必须配置 `DEEPSEEK_API_KEY`。
+
+**默认 HTTP 基址**：`DOUBAO_BASE_URL=https://openspeech.bytedance.com/api/v3`（OpenSpeech，与官方示例一致）。
 
 Current scope:
 - Session create/list/get
@@ -39,8 +48,9 @@ Current scope:
 - Prompt templates in `prompts/`
 
 ## Desktop App (Electron)
-- Install Node deps: `npm install`
-- Start desktop shell: `npm run desktop`
-- The app expects local API at `http://127.0.0.1:8000` (start `uvicorn` first)
-- Desktop supports in-app microphone recording and uploads audio to local API.
+
+- `npm install`
+- `npm run desktop` — **会自动在本机启动** `uvicorn`（工作目录为仓库根目录）。若你已手动起 API，可先设置环境变量 `SVI_SKIP_BACKEND=1` 再启动 Electron。
+- 托盘图标 + **Ctrl+Shift+V** 显示/隐藏窗口；关闭窗口默认隐藏到托盘（托盘菜单退出会结束后端进程）。
+- 录音上传后会 **默认自动转写**（`upload?auto_transcribe=true`）。
 

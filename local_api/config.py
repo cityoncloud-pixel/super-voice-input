@@ -9,18 +9,31 @@ load_dotenv()
 
 class Settings:
     APP_NAME = "Super Voice Input Local API"
-    APP_VERSION = "0.2.0"
+    APP_VERSION = "0.4.0"
 
     DB_PATH = os.getenv("SVI_DB_PATH", "data/super_voice_input.db")
     PROMPTS_DIR = os.getenv("SVI_PROMPTS_DIR", "prompts")
 
+    # When true, STT/Rewrite adapters return deterministic stubs (pytest only).
+    SVI_TEST_MODE = os.getenv("SVI_TEST_MODE", "").lower() in ("1", "true", "yes")
+
     DEFAULT_STT_PROVIDER = os.getenv("SVI_DEFAULT_STT_PROVIDER", "doubao")
     DEFAULT_REWRITE_PROVIDER = os.getenv("SVI_DEFAULT_REWRITE_PROVIDER", "deepseek")
 
-    DOUBAO_BASE_URL = os.getenv("DOUBAO_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3")
+    # Official OpenSpeech HTTP API host (bigmodel submit/query).
+    DOUBAO_BASE_URL = os.getenv("DOUBAO_BASE_URL", "https://openspeech.bytedance.com/api/v3")
     DOUBAO_API_KEY = os.getenv("DOUBAO_API_KEY", "")
-    DOUBAO_STT_MODEL = os.getenv("DOUBAO_STT_MODEL", "")
-    DOUBAO_STT_PATH = os.getenv("DOUBAO_STT_PATH", "/audio/transcriptions")
+    DOUBAO_RESOURCE_ID = os.getenv("DOUBAO_RESOURCE_ID", "volc.bigasr.auc")
+    DOUBAO_USER_ID = os.getenv("DOUBAO_USER_ID", "svi-local-user")
+    DOUBAO_LANGUAGE = os.getenv("DOUBAO_LANGUAGE", "")
+    DOUBAO_ENABLE_ITN = os.getenv("DOUBAO_ENABLE_ITN", "true")
+    DOUBAO_SUBMIT_PATH = os.getenv("DOUBAO_SUBMIT_PATH", "/auc/bigmodel/submit")
+    DOUBAO_QUERY_PATH = os.getenv("DOUBAO_QUERY_PATH", "/auc/bigmodel/query")
+    DOUBAO_POLL_INTERVAL_MS = int(os.getenv("DOUBAO_POLL_INTERVAL_MS", "1200"))
+    DOUBAO_POLL_TIMEOUT_MS = int(os.getenv("DOUBAO_POLL_TIMEOUT_MS", "90000"))
+    DOUBAO_AUDIO_URL_PREFIX = os.getenv("DOUBAO_AUDIO_URL_PREFIX", "")
+    # Build Doubao audio.url as {SVI_PUBLIC_BASE_URL}/files/audio/{session_id}/{filename}
+    SVI_PUBLIC_BASE_URL = os.getenv("SVI_PUBLIC_BASE_URL", "").rstrip("/")
 
     DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
     DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
