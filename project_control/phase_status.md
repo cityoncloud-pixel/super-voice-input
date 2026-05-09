@@ -1,16 +1,15 @@
 # phase_status.md (Owner-owned)
 
 ## Current Phase
-Phase 2: MVP Foundation Implementation
+Phase 3: Provider Verification and Packaging
 
 ## Phase Goal
-完成“多段语音 -> 可用文本”MVP 的第一轮可运行骨架与核心数据流闭环。
+在 MVP 已完成基础上，接入真实凭据进行 provider 联调，并准备桌面端打包分发。
 
 ## Done Criteria
-- 有可运行的最小应用骨架（录音片段、分段转写、合并整理主流程贯通）
-- 数据模型与持久化结构可支撑 VoiceSession/VoiceSegment 分离
-- 四种整理模式具备模板与调用入口
-- 有最小验证路径与阶段报告
+- `.env` 凭据配置后，OpenAI STT/Rewrite 至少一轮真实调用成功
+- 桌面端可生成可安装包或可分发产物
+- 发布文档可指导最终用户安装运行
 
 ## Forbidden Work (Scope Guard)
 - 不做账号系统/云同步/移动端

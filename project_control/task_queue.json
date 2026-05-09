@@ -1,7 +1,7 @@
 ﻿{
   "schema_version": "1.0",
-  "updated_at": "2026-05-09T22:33:00+08:00",
-  "current_task_id": "mvp-0001",
+  "updated_at": "2026-05-09T22:46:00+08:00",
+  "current_task_id": null,
   "tasks": [
     {
       "id": "bootstrap-0001",
@@ -20,7 +20,7 @@
       "id": "mvp-0001",
       "title": "Super Voice Input MVP Foundation",
       "route": "C",
-      "status": "in_progress",
+      "status": "done",
       "depends_on": [
         "bootstrap-0001"
       ],

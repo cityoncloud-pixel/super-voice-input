@@ -1,0 +1,13 @@
+{
+  "name": "super-voice-input-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "main": "desktop/main.js",
+  "scripts": {
+    "desktop": "electron .",
+    "desktop:dev": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^31.7.7"
+  }
+}

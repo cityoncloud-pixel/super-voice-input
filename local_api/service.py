@@ -109,3 +109,17 @@ class VoiceService:
         session.updated_at = utc_now_iso()
         self.store.update_session(session)
         return session
+
+    def refinalize_session(
+        self, session_id: str, mode: RewriteMode | None = None, rewrite_provider: str | None = None
+    ) -> VoiceSession:
+        session = self.store.get_session(session_id)
+        if not session:
+            raise ValueError("session not found")
+        if mode is not None:
+            session.mode = mode.value
+        if rewrite_provider:
+            session.rewrite_provider = rewrite_provider
+        session.updated_at = utc_now_iso()
+        self.store.update_session(session)
+        return self.finalize_session(session_id)

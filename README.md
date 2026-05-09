@@ -25,10 +25,21 @@
 - Run API: `uvicorn local_api.main:app --reload`
 - Open docs: `http://127.0.0.1:8000/docs`
 - Run tests: `pytest -q`
+- Env setup: copy `.env.example` to `.env` and fill keys if needed
+- If `.env` includes `OPENAI_API_KEY`, you can set `stt_provider=openai` and/or `rewrite_provider=openai`.
 
 Current scope:
 - Session create/list/get
 - Segment add/delete/retry transcribe
+- Segment upload (`/sessions/{id}/segments/upload`)
+- Segment rerecord
 - Session finalize (`combined_transcript` + `final_text`)
+- Session refinalize (history re-organization)
 - Prompt templates in `prompts/`
+
+## Desktop App (Electron)
+- Install Node deps: `npm install`
+- Start desktop shell: `npm run desktop`
+- The app expects local API at `http://127.0.0.1:8000` (start `uvicorn` first)
+- Desktop supports in-app microphone recording and uploads audio to local API.
 

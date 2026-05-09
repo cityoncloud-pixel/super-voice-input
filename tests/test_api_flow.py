@@ -77,3 +77,57 @@ def test_rerecord_resets_segment_state():
     assert rerecorded["audio_file_path"] == "audio/new.wav"
     assert rerecorded["status"] == "recorded"
     assert rerecorded["raw_transcript"] == ""
+
+
+def test_refinalize_changes_mode():
+    session_resp = client.post(
+        "/sessions",
+        json={
+            "title": "refinalize flow",
+            "mode": "intent_cleanup",
+            "rewrite_provider": "mock-rewrite",
+        },
+    )
+    session_id = session_resp.json()["id"]
+
+    seg_resp = client.post(
+        f"/sessions/{session_id}/segments",
+        json={
+            "audio_file_path": "audio/seg2.wav",
+            "duration_seconds": 1.5,
+            "stt_provider": "mock-stt",
+        },
+    )
+    seg_id = seg_resp.json()["id"]
+    client.post(f"/segments/{seg_id}/transcribe/retry")
+
+    refinalize_resp = client.post(
+        f"/sessions/{session_id}/refinalize",
+        json={"mode": "task_requirement", "rewrite_provider": "mock-rewrite"},
+    )
+    assert refinalize_resp.status_code == 200
+    data = refinalize_resp.json()
+    assert data["status"] == "done"
+    assert data["mode"] == "task_requirement"
+
+
+def test_upload_segment_endpoint():
+    session_resp = client.post(
+        "/sessions",
+        json={
+            "title": "upload flow",
+            "mode": "faithful_transcript",
+            "rewrite_provider": "mock-rewrite",
+        },
+    )
+    session_id = session_resp.json()["id"]
+
+    upload_resp = client.post(
+        f"/sessions/{session_id}/segments/upload",
+        files={"file": ("seg.webm", b"fake-audio-bytes", "audio/webm")},
+        data={"duration_seconds": "2.0", "stt_provider": "mock-stt"},
+    )
+    assert upload_resp.status_code == 200
+    seg = upload_resp.json()
+    assert seg["audio_file_path"]
+    assert seg["status"] == "recorded"

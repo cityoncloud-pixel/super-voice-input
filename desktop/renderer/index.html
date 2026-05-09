@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Super Voice Input</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Super Voice Input</h1>
+      <div id="health">API 状态检查中...</div>
+    </header>
+    <main>
+      <section class="panel">
+        <h2>创建会话</h2>
+        <div class="row">
+          <input id="sessionTitle" placeholder="会话标题" />
+          <select id="sessionMode"></select>
+          <input id="rewriteProvider" placeholder="rewrite provider" value="mock-rewrite" />
+          <button id="createSessionBtn">创建</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>当前会话</h2>
+        <div id="currentSession"></div>
+        <div class="row">
+          <input id="audioPath" placeholder="音频文件路径（先用 mock 路径）" />
+          <input id="audioDuration" placeholder="时长（秒）" type="number" step="0.1" value="3.0" />
+          <input id="sttProvider" placeholder="stt provider" value="mock-stt" />
+          <button id="addSegmentBtn">新增片段</button>
+          <button id="startRecordBtn">开始录音</button>
+          <button id="stopRecordBtn">停止并上传</button>
+          <button id="finalizeBtn">完成整理</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>片段列表</h2>
+        <div id="segments"></div>
+      </section>
+
+      <section class="panel">
+        <h2>最终结果</h2>
+        <textarea id="finalText" rows="12"></textarea>
+        <div class="row">
+          <button id="copyBtn">复制结果</button>
+          <select id="refinalizeMode"></select>
+          <button id="refinalizeBtn">按新模式再整理</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>历史会话</h2>
+        <button id="refreshHistoryBtn">刷新历史</button>
+        <div id="history"></div>
+      </section>
+    </main>
+    <script src="./app.js"></script>
+  </body>
+</html>

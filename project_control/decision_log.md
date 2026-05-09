@@ -24,3 +24,11 @@
   - Reason: 先稳住核心业务流可减少 UI 接入后的回归成本。
   - Impact: 当前主流程已具备可自动验证的回归基线（`pytest`）。
 
+- Decision: 使用 Electron 作为桌面端首版容器，并通过本地 API 解耦前后端。
+  - Reason: 与现有 FastAPI 服务对接成本低，能快速完成 MVP 闭环并保持后续替换灵活性。
+  - Impact: 已实现可操作 UI（会话/片段/录音上传/整理/历史），后续可独立演进桌面壳与服务层。
+
+- Decision: 敏感信息统一通过 `.env` 管理，代码库仅保留 `.env.example`。
+  - Reason: 避免泄露 API Key，同时满足 Owner 后续填充凭据的工作方式。
+  - Impact: provider 调用逻辑已支持读取环境变量，无需硬编码密钥。
+

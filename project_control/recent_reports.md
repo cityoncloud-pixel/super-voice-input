@@ -14,3 +14,9 @@
 - 代码：`local_api/main.py`、`local_api/service.py`、`tests/test_api_flow.py`
 - 验证：`pytest -q` 通过（2 passed）
 
+## 2026-05-09 / mvp-0001 / iteration-3
+- 状态：done
+- 产出：桌面端最小闭环 + 录音上传 + `.env` 配置 + 可选 OpenAI provider
+- 代码：`desktop/*`、`local_api/main.py`、`local_api/adapters.py`、`local_api/config.py`
+- 验证：`pytest -q` 通过（4 passed）
+

@@ -1,31 +1,35 @@
 from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException
+from pathlib import Path
+from uuid import uuid4
+
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 from local_api.adapters import MockSTTAdapter, TemplateRewriteAdapter
+from local_api.config import settings
 from local_api.domain import RewriteMode
 from local_api.service import VoiceService
 from local_api.storage import SQLiteStore
 
-app = FastAPI(title="Super Voice Input Local API", version="0.1.0")
+app = FastAPI(title=settings.APP_NAME, version=settings.APP_VERSION)
 service = VoiceService(
-    store=SQLiteStore(),
+    store=SQLiteStore(db_path=settings.DB_PATH),
     stt=MockSTTAdapter(),
-    rewrite=TemplateRewriteAdapter(),
+    rewrite=TemplateRewriteAdapter(templates_dir=settings.PROMPTS_DIR),
 )
 
 
 class CreateSessionRequest(BaseModel):
     title: str = Field(min_length=1)
     mode: RewriteMode
-    rewrite_provider: str = "mock-rewrite"
+    rewrite_provider: str = settings.DEFAULT_REWRITE_PROVIDER
 
 
 class AddSegmentRequest(BaseModel):
     audio_file_path: str = Field(min_length=1)
     duration_seconds: float = Field(ge=0)
-    stt_provider: str = "mock-stt"
+    stt_provider: str = settings.DEFAULT_STT_PROVIDER
 
 
 class RerecordSegmentRequest(BaseModel):
@@ -33,9 +37,19 @@ class RerecordSegmentRequest(BaseModel):
     duration_seconds: float = Field(ge=0)
 
 
+class RefinalizeSessionRequest(BaseModel):
+    mode: RewriteMode | None = None
+    rewrite_provider: str | None = None
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/modes")
+def list_modes():
+    return {"modes": [m.value for m in RewriteMode]}
 
 
 @app.post("/sessions")
@@ -69,6 +83,31 @@ def add_segment(session_id: str, req: AddSegmentRequest):
     )
 
 
+@app.post("/sessions/{session_id}/segments/upload")
+async def upload_segment(
+    session_id: str,
+    file: UploadFile = File(...),
+    duration_seconds: float = Form(0),
+    stt_provider: str = Form(settings.DEFAULT_STT_PROVIDER),
+):
+    if not service.get_session(session_id):
+        raise HTTPException(status_code=404, detail="session not found")
+
+    suffix = Path(file.filename or "segment.webm").suffix or ".webm"
+    target_dir = Path("data") / "audio" / session_id
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target_path = target_dir / f"{uuid4().hex[:12]}{suffix}"
+    content = await file.read()
+    target_path.write_bytes(content)
+
+    return service.add_segment(
+        session_id=session_id,
+        audio_file_path=str(target_path.as_posix()),
+        duration_seconds=duration_seconds,
+        stt_provider=stt_provider,
+    )
+
+
 @app.post("/segments/{segment_id}/transcribe/retry")
 def retry_segment_transcribe(segment_id: str):
     try:
@@ -99,5 +138,17 @@ def rerecord_segment(segment_id: str, req: RerecordSegmentRequest):
 def finalize_session(session_id: str):
     try:
         return service.finalize_session(session_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/sessions/{session_id}/refinalize")
+def refinalize_session(session_id: str, req: RefinalizeSessionRequest):
+    try:
+        return service.refinalize_session(
+            session_id=session_id,
+            mode=req.mode,
+            rewrite_provider=req.rewrite_provider,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
