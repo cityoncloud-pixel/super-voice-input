@@ -24,6 +24,7 @@
 - Install deps: `pip install -r requirements.txt`
 - Run API: `uvicorn local_api.main:app --reload`
 - Open docs: `http://127.0.0.1:8000/docs`
+- Run tests: `pytest -q`
 
 Current scope:
 - Session create/list/get

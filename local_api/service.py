@@ -62,6 +62,18 @@ class VoiceService:
     def delete_segment(self, segment_id: str) -> None:
         self.store.delete_segment(segment_id)
 
+    def rerecord_segment(self, segment_id: str, audio_file_path: str, duration_seconds: float) -> VoiceSegment:
+        seg = self.store.get_segment(segment_id)
+        if not seg:
+            raise ValueError("segment not found")
+        seg.audio_file_path = audio_file_path
+        seg.duration_seconds = duration_seconds
+        seg.raw_transcript = ""
+        seg.status = SegmentStatus.RECORDED.value
+        seg.error_message = ""
+        self.store.update_segment(seg)
+        return seg
+
     def finalize_session(self, session_id: str) -> VoiceSession:
         session = self.store.get_session(session_id)
         if not session:

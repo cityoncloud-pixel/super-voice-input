@@ -28,6 +28,11 @@ class AddSegmentRequest(BaseModel):
     stt_provider: str = "mock-stt"
 
 
+class RerecordSegmentRequest(BaseModel):
+    audio_file_path: str = Field(min_length=1)
+    duration_seconds: float = Field(ge=0)
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -76,6 +81,18 @@ def retry_segment_transcribe(segment_id: str):
 def delete_segment(segment_id: str):
     service.delete_segment(segment_id)
     return {"deleted": True, "segment_id": segment_id}
+
+
+@app.post("/segments/{segment_id}/rerecord")
+def rerecord_segment(segment_id: str, req: RerecordSegmentRequest):
+    try:
+        return service.rerecord_segment(
+            segment_id=segment_id,
+            audio_file_path=req.audio_file_path,
+            duration_seconds=req.duration_seconds,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.post("/sessions/{session_id}/finalize")
