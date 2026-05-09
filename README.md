@@ -26,7 +26,8 @@
 - Open docs: `http://127.0.0.1:8000/docs`
 - Run tests: `pytest -q`
 - Env setup: copy `.env.example` to `.env` and fill keys if needed
-- If `.env` includes `OPENAI_API_KEY`, you can set `stt_provider=openai` and/or `rewrite_provider=openai`.
+- Provider strategy (adapter-based): STT uses `doubao`, rewrite uses `deepseek`.
+- If `.env` has no provider keys yet, the service falls back to mock output for local flow testing.
 
 Current scope:
 - Session create/list/get

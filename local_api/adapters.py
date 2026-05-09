@@ -16,15 +16,17 @@ class STTAdapter:
 
 class MockSTTAdapter(STTAdapter):
     def transcribe(self, audio_file_path: str, provider: str) -> str:
-        if provider == "openai" and settings.OPENAI_API_KEY:
-            return self._transcribe_via_openai(audio_file_path)
+        if provider == "doubao" and settings.DOUBAO_API_KEY:
+            return self._transcribe_via_doubao(audio_file_path)
         filename = Path(audio_file_path).name
         return f"[mock:{provider}] transcript from {filename}"
 
-    def _transcribe_via_openai(self, audio_file_path: str) -> str:
+    def _transcribe_via_doubao(self, audio_file_path: str) -> str:
         file_path = Path(audio_file_path)
         if not file_path.exists():
             raise FileNotFoundError(f"audio file not found: {audio_file_path}")
+        if not settings.DOUBAO_STT_MODEL:
+            raise ValueError("DOUBAO_STT_MODEL is required for doubao transcription.")
         file_bytes = file_path.read_bytes()
         boundary = f"----SVIFormBoundary{uuid4().hex}"
         crlf = b"\r\n"
@@ -33,7 +35,7 @@ class MockSTTAdapter(STTAdapter):
         parts.append(f"--{boundary}".encode("utf-8"))
         parts.append(b'Content-Disposition: form-data; name="model"')
         parts.append(b"")
-        parts.append(settings.OPENAI_STT_MODEL.encode("utf-8"))
+        parts.append(settings.DOUBAO_STT_MODEL.encode("utf-8"))
 
         parts.append(f"--{boundary}".encode("utf-8"))
         parts.append(
@@ -47,10 +49,10 @@ class MockSTTAdapter(STTAdapter):
         body = crlf.join(parts)
 
         req = request.Request(
-            url=f"{settings.OPENAI_BASE_URL}/audio/transcriptions",
+            url=f"{settings.DOUBAO_BASE_URL}{settings.DOUBAO_STT_PATH}",
             data=body,
             headers={
-                "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
+                "Authorization": f"Bearer {settings.DOUBAO_API_KEY}",
                 "Content-Type": f"multipart/form-data; boundary={boundary}",
             },
             method="POST",
@@ -77,8 +79,8 @@ class TemplateRewriteAdapter(RewriteAdapter):
         if not tpl_path.exists():
             raise FileNotFoundError(f"Missing prompt template: {tpl_path}")
         prompt = tpl_path.read_text(encoding="utf-8").strip()
-        if provider == "openai" and settings.OPENAI_API_KEY:
-            return self._rewrite_via_openai(prompt=prompt, text=combined_transcript)
+        if provider == "deepseek" and settings.DEEPSEEK_API_KEY:
+            return self._rewrite_via_deepseek(prompt=prompt, text=combined_transcript)
         return (
             f"[mock-rewrite:{provider}]\n"
             f"mode={mode.value}\n"
@@ -86,9 +88,9 @@ class TemplateRewriteAdapter(RewriteAdapter):
             f"{combined_transcript}"
         )
 
-    def _rewrite_via_openai(self, prompt: str, text: str) -> str:
+    def _rewrite_via_deepseek(self, prompt: str, text: str) -> str:
         payload = {
-            "model": settings.OPENAI_REWRITE_MODEL,
+            "model": settings.DEEPSEEK_REWRITE_MODEL,
             "messages": [
                 {"role": "system", "content": prompt},
                 {"role": "user", "content": text},
@@ -96,10 +98,10 @@ class TemplateRewriteAdapter(RewriteAdapter):
             "temperature": 0.2,
         }
         req = request.Request(
-            url=f"{settings.OPENAI_BASE_URL}/chat/completions",
+            url=f"{settings.DEEPSEEK_BASE_URL}{settings.DEEPSEEK_REWRITE_PATH}",
             data=json.dumps(payload).encode("utf-8"),
             headers={
-                "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
+                "Authorization": f"Bearer {settings.DEEPSEEK_API_KEY}",
                 "Content-Type": "application/json",
             },
             method="POST",
