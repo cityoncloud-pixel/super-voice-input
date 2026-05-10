@@ -110,12 +110,13 @@ function startBackend() {
   if (process.env.SVI_SKIP_BACKEND === "1") return;
   const root = path.join(__dirname, "..");
   const python = process.env.SVI_PYTHON || "python";
+  const uvicornArgs = ["-m", "uvicorn", "local_api.main:app", "--host", API_HOST, "--port", API_PORT];
+  // 开发时改 Python 后自动重载子进程（单进程起后端时用 npm run desktop:reload）
+  if (process.env.SVI_UVICORN_RELOAD === "1") {
+    uvicornArgs.push("--reload");
+  }
   backendSpawnedByUs = true;
-  backendProcess = spawn(
-    python,
-    ["-m", "uvicorn", "local_api.main:app", "--host", API_HOST, "--port", API_PORT],
-    { cwd: root, shell: true, stdio: "ignore", detached: false }
-  );
+  backendProcess = spawn(python, uvicornArgs, { cwd: root, shell: true, stdio: "ignore", detached: false });
   backendProcess.on("exit", (code, signal) => {
     if (code !== 0 && code != null) {
       console.error(`[SVI] uvicorn 已退出 code=${code} signal=${signal || ""}（检查 Python 依赖与端口 ${API_PORT}）`);
