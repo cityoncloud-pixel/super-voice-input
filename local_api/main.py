@@ -11,6 +11,7 @@ from starlette.middleware.cors import CORSMiddleware
 from local_api.adapters import TemplateRewriteAdapter, VoiceSTTAdapter
 from local_api.config import get_public_base_url, set_public_base_url, settings
 from local_api.domain import RewriteMode
+from local_api.output_router import OutputRouter, OutputTarget
 from local_api.service import VoiceService
 from local_api.storage import SQLiteStore
 from local_api.tunnel import CloudflaredTunnel
@@ -30,6 +31,7 @@ service = VoiceService(
     stt=VoiceSTTAdapter(),
     rewrite=TemplateRewriteAdapter(templates_dir=settings.PROMPTS_DIR),
 )
+output_router = OutputRouter(store=service.store)
 
 _tunnel: CloudflaredTunnel | None = None
 
@@ -85,6 +87,16 @@ class RefinalizeSessionRequest(BaseModel):
     rewrite_provider: str | None = None
 
 
+class SessionOutputRequest(BaseModel):
+    target: str = Field(min_length=1)
+
+
+class SessionOutputFeedbackRequest(BaseModel):
+    target: str = Field(min_length=1)
+    success: bool
+    detail: str = ""
+
+
 class ClearAllRequest(BaseModel):
     delete_audio: bool = True
 
@@ -97,6 +109,11 @@ def health() -> dict[str, str]:
 @app.get("/modes")
 def list_modes():
     return {"modes": [m.value for m in RewriteMode]}
+
+
+@app.get("/presets")
+def list_presets():
+    return {"presets": service.store.list_presets()}
 
 
 class SetPublicBaseUrlRequest(BaseModel):
@@ -287,3 +304,30 @@ def refinalize_session(session_id: str, req: RefinalizeSessionRequest):
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/sessions/{session_id}/outputs")
+def dispatch_session_output(session_id: str, req: SessionOutputRequest):
+    try:
+        target = OutputTarget(req.target)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="invalid output target") from exc
+    res = output_router.dispatch(session_id, target)
+    if not res.ok:
+        raise HTTPException(status_code=400, detail=res.message)
+    return {
+        "ok": True,
+        "target": res.target,
+        "message": res.message,
+        "final_text": res.final_text,
+        "requires_client_execution": res.requires_client_execution,
+        "written_path": res.written_path,
+    }
+
+
+@app.post("/sessions/{session_id}/output-feedback")
+def session_output_feedback(session_id: str, req: SessionOutputFeedbackRequest):
+    session = output_router.record_client_feedback(session_id, req.target, req.success, req.detail)
+    if not session:
+        raise HTTPException(status_code=404, detail="session not found")
+    return {"session": session}

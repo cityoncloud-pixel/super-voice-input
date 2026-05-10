@@ -11,7 +11,21 @@ const {
   globalShortcut,
   session,
   dialog,
+  ipcMain,
+  clipboard,
 } = require("electron");
+
+/** 禁止第二个桌面进程：否则会再次 spawn uvicorn，典型报错为端口占用(10048)。 */
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+  process.exit(0);
+}
+
+/** 默认启动时打开悬浮窗（可与工作台并存）；设为 0 则仅托盘手动打开，快捷键仍会按需创建悬浮窗。 */
+const SHOW_OVERLAY_ON_START =
+  (process.env.SVI_SHOW_OVERLAY_ON_START || "1").toLowerCase() !== "0" &&
+  (process.env.SVI_SHOW_OVERLAY_ON_START || "").toLowerCase() !== "false";
 const http = require("http");
 const fs = require("fs");
 const url = require("url");
@@ -22,6 +36,7 @@ const API_HOST = process.env.SVI_API_HOST || "127.0.0.1";
 const AUTO_TUNNEL = (process.env.SVI_AUTO_TUNNEL || "1").toLowerCase() !== "0";
 
 let mainWindow = null;
+let overlayWindow = null;
 let tray = null;
 let backendProcess = null;
 /** 仅为 true 时表示 uvicorn 由本进程 spawn，退出时才 kill，避免关掉用户手动起的占口服务 */
@@ -32,6 +47,60 @@ let rendererHttpServer = null;
 let rendererStaticPort = null;
 let tunnelProcess = null;
 let tunnelPublicUrl = null;
+
+ipcMain.handle("svi-write-clipboard", (_evt, text) => {
+  try {
+    clipboard.writeText(String(text ?? ""));
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e && e.message ? String(e.message) : String(e) };
+  }
+});
+
+ipcMain.handle("svi-paste-foreground", async (_evt, text) => {
+  const win = BrowserWindow.getFocusedWindow() || mainWindow;
+  const choice = await dialog.showMessageBox(win || undefined, {
+    type: "info",
+    buttons: ["确定", "取消"],
+    defaultId: 0,
+    cancelId: 1,
+    title: "粘贴到前台窗口",
+    message: "请先切换到目标应用，并将光标放在输入框内，然后点「确定」。",
+    noLink: true,
+  });
+  if (choice.response !== 0) {
+    return { ok: false, error: "cancelled" };
+  }
+  try {
+    clipboard.writeText(String(text ?? ""));
+    await new Promise((r) => setTimeout(r, 200));
+    if (process.platform === "win32") {
+      const { execFileSync } = require("child_process");
+      execFileSync(
+        "powershell",
+        [
+          "-NoProfile",
+          "-STA",
+          "-Command",
+          "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('^v')",
+        ],
+        { timeout: 8000, windowsHide: true },
+      );
+    } else if (process.platform === "darwin") {
+      const { execFileSync } = require("child_process");
+      execFileSync(
+        "osascript",
+        ["-e", 'tell application "System Events" to keystroke "v" using command down'],
+        { timeout: 8000 },
+      );
+    } else {
+      return { ok: false, error: "当前平台不支持自动粘贴，请手动 Ctrl+V（剪贴板已写入）。" };
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e && e.message ? String(e.message) : String(e) };
+  }
+});
 
 function mimeForExt(ext) {
   const m = {
@@ -335,6 +404,36 @@ async function ensureTunnelAndSetBackendBaseUrl() {
   }
 }
 
+async function createOverlayWindow() {
+  const port = await ensureRendererServer();
+  const apiBaseArg = `--svi-api-base=http://${API_HOST}:${API_PORT}`;
+  overlayWindow = new BrowserWindow({
+    width: 360,
+    height: 260,
+    show: true,
+    alwaysOnTop: true,
+    skipTaskbar: false,
+    title: "超级语音输入 · 悬浮",
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      additionalArguments: [apiBaseArg],
+    },
+  });
+  overlayWindow.loadURL(`http://127.0.0.1:${port}/overlay.html`);
+  overlayWindow.on("closed", () => {
+    overlayWindow = null;
+  });
+  try {
+    const { screen } = require("electron");
+    const { width: sw, height: sh } = screen.getPrimaryDisplay().workAreaSize;
+    overlayWindow.setPosition(Math.max(40, sw - 380), 48);
+  } catch {
+    /* ignore */
+  }
+}
+
 async function createWindow() {
   const port = await ensureRendererServer();
   const apiBaseArg = `--svi-api-base=http://${API_HOST}:${API_PORT}`;
@@ -371,9 +470,45 @@ function toggleWindow() {
   }
 }
 
+app.on("second-instance", () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.show();
+    mainWindow.focus();
+  }
+  if (overlayWindow && !overlayWindow.isDestroyed()) {
+    overlayWindow.show();
+    overlayWindow.focus();
+  }
+});
+
+/** macOS / 部分环境下窗口被全部关闭后的恢复；须在 whenReady 外注册 */
+app.on("activate", () => {
+  if (BrowserWindow.getAllWindows().length === 0) {
+    createWindow().catch((e) => console.error("[SVI] activate createWindow", e));
+  }
+});
+
+function registerShortcut(accelerator, fn) {
+  try {
+    const ok = globalShortcut.register(accelerator, fn);
+    if (!ok) {
+      console.error(
+        `[SVI] 快捷键未注册成功（可能被系统或其它软件占用）: ${accelerator}`
+      );
+    }
+  } catch (e) {
+    console.error(`[SVI] 快捷键注册异常 ${accelerator}`, e);
+  }
+}
+
 app.whenReady().then(async () => {
   session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
     if (permission === "media" || permission === "microphone") {
+      callback(true);
+      return;
+    }
+    // Chromium 偶发对 Clipboard API 发起权限询问；放行可减少渲染进程 navigator.clipboard 被拒（仍以主进程 IPC 为主）。
+    if (permission && String(permission).toLowerCase().includes("clipboard")) {
       callback(true);
       return;
     }
@@ -408,7 +543,18 @@ app.whenReady().then(async () => {
   tray.setToolTip("Super Voice Input");
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: "显示 / 隐藏", click: () => toggleWindow() },
+      { label: "显示 / 隐藏 主面板", click: () => toggleWindow() },
+      {
+        label: "显示悬浮窗",
+        click: () => {
+          if (overlayWindow && !overlayWindow.isDestroyed()) {
+            overlayWindow.show();
+            overlayWindow.focus();
+          } else {
+            createOverlayWindow().catch((e) => console.error(e));
+          }
+        },
+      },
       { type: "separator" },
       {
         label: "退出",
@@ -424,15 +570,39 @@ app.whenReady().then(async () => {
   );
   tray.on("click", () => toggleWindow());
 
-  globalShortcut.register("CommandOrControl+Shift+V", () => toggleWindow());
+  registerShortcut("CommandOrControl+Shift+V", () => toggleWindow());
 
-  createWindow().catch((err) => console.error("[SVI] createWindow failed", err));
-
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow().catch((e) => console.error(e));
+  registerShortcut("CommandOrControl+Alt+Space", async () => {
+    try {
+      if (!overlayWindow || overlayWindow.isDestroyed()) {
+        await createOverlayWindow();
+      }
+      if (overlayWindow && !overlayWindow.isDestroyed()) {
+        overlayWindow.webContents.send("svi-hotkey-record-toggle");
+        if (!overlayWindow.isVisible()) overlayWindow.show();
+      }
+    } catch (e) {
+      console.error("[SVI] overlay shortcut", e);
     }
   });
+  registerShortcut("CommandOrControl+Alt+Enter", async () => {
+    try {
+      if (!overlayWindow || overlayWindow.isDestroyed()) {
+        await createOverlayWindow();
+      }
+      if (overlayWindow && !overlayWindow.isDestroyed()) {
+        overlayWindow.webContents.send("svi-hotkey-finalize");
+        if (!overlayWindow.isVisible()) overlayWindow.show();
+      }
+    } catch (e) {
+      console.error("[SVI] overlay finalize shortcut", e);
+    }
+  });
+
+  createWindow().catch((err) => console.error("[SVI] createWindow failed", err));
+  if (SHOW_OVERLAY_ON_START) {
+    createOverlayWindow().catch((err) => console.error("[SVI] createOverlayWindow failed", err));
+  }
 });
 
 app.on("will-quit", () => {

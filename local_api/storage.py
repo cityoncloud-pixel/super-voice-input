@@ -32,10 +32,15 @@ class SQLiteStore:
                   rewrite_provider TEXT NOT NULL,
                   created_at TEXT NOT NULL,
                   updated_at TEXT NOT NULL,
-                  error_message TEXT NOT NULL
+                  error_message TEXT NOT NULL,
+                  last_output_target TEXT NOT NULL DEFAULT '',
+                  last_output_status TEXT NOT NULL DEFAULT '',
+                  last_output_at TEXT NOT NULL DEFAULT '',
+                  last_output_detail TEXT NOT NULL DEFAULT ''
                 )
                 """
             )
+            self._migrate_voice_sessions_output_cols(conn)
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS voice_segments (
@@ -53,12 +58,58 @@ class SQLiteStore:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS voice_presets (
+                  id TEXT PRIMARY KEY,
+                  name TEXT NOT NULL,
+                  rewrite_mode TEXT NOT NULL,
+                  default_output_target TEXT NOT NULL,
+                  sort_order INTEGER NOT NULL DEFAULT 0
+                )
+                """
+            )
+            self._seed_builtin_presets(conn)
+
+    def _migrate_voice_sessions_output_cols(self, conn: sqlite3.Connection) -> None:
+        rows = conn.execute("PRAGMA table_info(voice_sessions)").fetchall()
+        cols = {str(r[1]) for r in rows}
+        if "last_output_target" not in cols:
+            conn.execute("ALTER TABLE voice_sessions ADD COLUMN last_output_target TEXT NOT NULL DEFAULT ''")
+        if "last_output_status" not in cols:
+            conn.execute("ALTER TABLE voice_sessions ADD COLUMN last_output_status TEXT NOT NULL DEFAULT ''")
+        if "last_output_at" not in cols:
+            conn.execute("ALTER TABLE voice_sessions ADD COLUMN last_output_at TEXT NOT NULL DEFAULT ''")
+        if "last_output_detail" not in cols:
+            conn.execute("ALTER TABLE voice_sessions ADD COLUMN last_output_detail TEXT NOT NULL DEFAULT ''")
+
+    def _seed_builtin_presets(self, conn: sqlite3.Connection) -> None:
+        n = conn.execute("SELECT COUNT(1) AS c FROM voice_presets").fetchone()["c"]
+        if int(n) > 0:
+            return
+        rows = [
+            ("preset_chatgpt", "发给 ChatGPT / 对话框", "intent_cleanup", "clipboard", 10),
+            ("preset_obsidian", "写入 Obsidian Inbox", "obsidian_note", "obsidian_inbox", 20),
+            ("preset_gaeh", "生成 GAEH 任务稿", "task_requirement", "gaeh_goal_file", 30),
+            ("preset_faithful_clip", "忠实转录 · 剪贴板", "faithful_transcript", "clipboard", 40),
+        ]
+        conn.executemany(
+            "INSERT INTO voice_presets (id, name, rewrite_mode, default_output_target, sort_order) VALUES (?, ?, ?, ?, ?)",
+            rows,
+        )
+
+    def list_presets(self) -> list[dict]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT id, name, rewrite_mode, default_output_target, sort_order FROM voice_presets ORDER BY sort_order ASC, name ASC"
+            ).fetchall()
+        return [dict(r) for r in rows]
 
     def create_session(self, s: VoiceSession) -> VoiceSession:
         with self._conn() as conn:
             conn.execute(
                 """
-                INSERT INTO voice_sessions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO voice_sessions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     s.id,
@@ -71,6 +122,10 @@ class SQLiteStore:
                     s.created_at,
                     s.updated_at,
                     s.error_message,
+                    s.last_output_target,
+                    s.last_output_status,
+                    s.last_output_at,
+                    s.last_output_detail,
                 ),
             )
         return s
@@ -91,7 +146,8 @@ class SQLiteStore:
                 """
                 UPDATE voice_sessions
                 SET title=?, mode=?, status=?, combined_transcript=?, final_text=?,
-                    rewrite_provider=?, created_at=?, updated_at=?, error_message=?
+                    rewrite_provider=?, created_at=?, updated_at=?, error_message=?,
+                    last_output_target=?, last_output_status=?, last_output_at=?, last_output_detail=?
                 WHERE id=?
                 """,
                 (
@@ -104,6 +160,10 @@ class SQLiteStore:
                     s.created_at,
                     s.updated_at,
                     s.error_message,
+                    s.last_output_target,
+                    s.last_output_status,
+                    s.last_output_at,
+                    s.last_output_detail,
                     s.id,
                 ),
             )

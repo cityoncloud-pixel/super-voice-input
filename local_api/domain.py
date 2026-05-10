@@ -48,6 +48,10 @@ class VoiceSession:
     created_at: str
     updated_at: str
     error_message: str
+    last_output_target: str = ""
+    last_output_status: str = ""
+    last_output_at: str = ""
+    last_output_detail: str = ""
 
     @staticmethod
     def create(title: str, mode: RewriteMode, rewrite_provider: str) -> "VoiceSession":
@@ -63,6 +67,10 @@ class VoiceSession:
             created_at=now,
             updated_at=now,
             error_message="",
+            last_output_target="",
+            last_output_status="",
+            last_output_at="",
+            last_output_detail="",
         )
 
 

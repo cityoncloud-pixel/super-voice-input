@@ -8,6 +8,9 @@ const apiBase =
 const DEFAULT_STT = "doubao";
 const DEFAULT_REWRITE = "deepseek";
 
+/** 由「场景预设」下拉同步；用于「按预设默认投递」 */
+let presetDefaultOutputTarget = "clipboard";
+
 /** 与后端 RewriteMode 对齐 */
 const MODE_LABELS = {
   intent_cleanup: "原意清理 · 适合对话框粘贴",
@@ -39,6 +42,13 @@ function bindEl() {
   el.finalText = document.getElementById("finalText");
   el.finalizeBtn = document.getElementById("finalizeBtn");
   el.copyBtn = document.getElementById("copyBtn");
+  el.outClipboardBtn = document.getElementById("outClipboardBtn");
+  el.outPasteBtn = document.getElementById("outPasteBtn");
+  el.outMdBtn = document.getElementById("outMdBtn");
+  el.outObsidianBtn = document.getElementById("outObsidianBtn");
+  el.outGaehBtn = document.getElementById("outGaehBtn");
+  el.outPresetBtn = document.getElementById("outPresetBtn");
+  el.presetSelect = document.getElementById("presetSelect");
   el.refinalizeMode = document.getElementById("refinalizeMode");
   el.refinalizeBtn = document.getElementById("refinalizeBtn");
   el.audioPath = document.getElementById("audioPath");
@@ -50,31 +60,12 @@ function bindEl() {
   el.toast = document.getElementById("toast");
 }
 
-/** ---------- API ---------- */
+/** ---------- API（与悬浮窗共用 svi-shared.js） ---------- */
 async function api(path, options = {}) {
-  const headers = { ...(options.headers || {}) };
-  if (options.body && typeof options.body === "string" && !headers["Content-Type"]) {
-    headers["Content-Type"] = "application/json";
+  if (!window.SVI_SHARED || typeof window.SVI_SHARED.fetchApi !== "function") {
+    throw new Error("缺少 svi-shared.js：请确认 index.html 中先于 app.js 加载。");
   }
-  let resp;
-  try {
-    resp = await fetch(`${apiBase}${path}`, { ...options, headers });
-  } catch (e) {
-    const name = e && e.name;
-    const detail = e && e.message ? e.message : String(e);
-    const hint =
-      name === "TypeError" || /fetch|network|Failed to fetch/i.test(detail)
-        ? `无法连接 API：${apiBase}。\n\n若已手动启动后端，请确认端口与 .env / 环境变量 SVI_API_PORT 一致；若端口占用(10048)，请关掉重复的 uvicorn。\n\n手动启动（端口请与上方一致）：\npython -m uvicorn local_api.main:app --host 127.0.0.1 --port <端口>`
-        : detail;
-    throw new Error(hint);
-  }
-  if (!resp.ok) {
-    const body = await resp.text();
-    throw new Error(`${resp.status} ${body}`);
-  }
-  const ct = resp.headers.get("content-type") || "";
-  if (ct.includes("application/json")) return resp.json();
-  return resp.text();
+  return window.SVI_SHARED.fetchApi(apiBase, path, options);
 }
 
 function showToast(message, isError) {
@@ -127,6 +118,37 @@ async function loadModes() {
     console.warn("[SVI] /modes 不可用，使用内置整理模式列表", e);
     seedModeSelects();
   }
+}
+
+async function loadPresets() {
+  if (!el.presetSelect) return;
+  try {
+    const data = await api("/presets");
+    const presets = Array.isArray(data?.presets) ? data.presets : [];
+    el.presetSelect.innerHTML = '<option value="">— 不使用预设 —</option>';
+    for (const p of presets) {
+      const opt = document.createElement("option");
+      opt.value = p.id;
+      opt.textContent = p.name || p.id;
+      opt.dataset.rewriteMode = p.rewrite_mode || "";
+      opt.dataset.defaultOutput = p.default_output_target || "clipboard";
+      el.presetSelect.appendChild(opt);
+    }
+  } catch (e) {
+    console.warn("[SVI] /presets 不可用", e);
+  }
+  el.presetSelect.onchange = () => {
+    const opt = el.presetSelect.selectedOptions[0];
+    if (!opt || !opt.value) {
+      presetDefaultOutputTarget = "clipboard";
+      return;
+    }
+    const rm = opt.dataset.rewriteMode;
+    if (rm && el.sessionMode.querySelector(`option[value="${rm}"]`)) {
+      el.sessionMode.value = rm;
+    }
+    presetDefaultOutputTarget = opt.dataset.defaultOutput || "clipboard";
+  };
 }
 
 /** ---------- Session UI ---------- */
@@ -258,7 +280,15 @@ function escapeHtml(s) {
 function updateFinalizeEnabled(segments) {
   const ok = segments.some((s) => s.status === "transcribed" && (s.raw_transcript || "").trim());
   el.finalizeBtn.disabled = !currentSessionId || !ok;
-  el.copyBtn.disabled = !(el.finalText.value || "").trim();
+  const hasFinal = !!(el.finalText.value || "").trim();
+  el.copyBtn.disabled = !hasFinal;
+  const outOk = hasFinal && !!currentSessionId;
+  el.outClipboardBtn.disabled = !outOk;
+  el.outPasteBtn.disabled = !outOk;
+  el.outMdBtn.disabled = !outOk;
+  el.outObsidianBtn.disabled = !outOk;
+  el.outGaehBtn.disabled = !outOk;
+  el.outPresetBtn.disabled = !outOk;
 }
 
 async function refreshCurrentSession() {
@@ -361,18 +391,121 @@ function startWaveform(stream) {
   tick();
 }
 
-function pickMimeType() {
-  const candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
-  for (const t of candidates) {
-    if (window.MediaRecorder && MediaRecorder.isTypeSupported(t)) return t;
-  }
-  return "";
-}
-
 function formatTime(sec) {
   const s = Math.floor(sec % 60);
   const m = Math.floor(sec / 60);
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+/** ---------- Output Router（终端 → API → 主进程/文件） ---------- */
+async function dispatchSessionOutput(target) {
+  if (!currentSessionId) {
+    showToast("请先创建会话并完成整理。", true);
+    return;
+  }
+  let data;
+  try {
+    data = await api(`/sessions/${currentSessionId}/outputs`, {
+      method: "POST",
+      body: JSON.stringify({ target }),
+    });
+  } catch (e) {
+    showToast(String(e.message || e), true);
+    return;
+  }
+
+  const text = data.final_text || "";
+
+  if (!data.requires_client_execution) {
+    const hint = data.written_path ? `已写入：${data.written_path}` : "已完成";
+    showToast(hint);
+    await refreshCurrentSession();
+    return;
+  }
+
+  if (target === "clipboard") {
+    const wr = await window.SVI_SHARED.writeClipboardBestEffort(text);
+    const ok = !!wr.ok;
+    const detail = wr.error || "";
+    try {
+      await api(`/sessions/${currentSessionId}/output-feedback`, {
+        method: "POST",
+        body: JSON.stringify({ target, success: ok, detail }),
+      });
+    } catch (err) {
+      console.warn("[SVI] output-feedback failed", err);
+    }
+    showToast(ok ? "已通过路由写入剪贴板。" : detail || "剪贴板写入失败", !ok);
+    await refreshCurrentSession();
+    return;
+  }
+
+  if (target === "active_window_paste") {
+    if (!window.svi || typeof window.svi.pasteForeground !== "function") {
+      try {
+        await api(`/sessions/${currentSessionId}/output-feedback`, {
+          method: "POST",
+          body: JSON.stringify({
+            target,
+            success: false,
+            detail: "仅 Electron 桌面版支持前台粘贴",
+          }),
+        });
+      } catch (err) {
+        console.warn(err);
+      }
+      showToast("前台粘贴仅支持 Electron 桌面版；请改用「剪贴板」或其它投递。", true);
+      await refreshCurrentSession();
+      return;
+    }
+    const r = await window.svi.pasteForeground(text);
+    try {
+      await api(`/sessions/${currentSessionId}/output-feedback`, {
+        method: "POST",
+        body: JSON.stringify({
+          target,
+          success: !!r.ok,
+          detail: r.error || "",
+        }),
+      });
+    } catch (err) {
+      console.warn(err);
+    }
+    showToast(r.ok ? "已尝试粘贴到前台窗口。" : r.error || "粘贴失败", !r.ok);
+    await refreshCurrentSession();
+  }
+}
+
+/** ---------- History list（须为顶层函数：init / wireEvents 多处调用） ---------- */
+async function refreshHistoryList() {
+  const sessions = await api("/sessions");
+  sessions.sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+  el.history.innerHTML = "";
+  if (!sessions.length) {
+    el.history.innerHTML = '<p class="hint">暂无历史</p>';
+    return;
+  }
+  for (const s of sessions) {
+    const card = document.createElement("div");
+    card.className = "segment-card";
+    card.innerHTML = `
+      <div class="meta"><strong>${escapeHtml(s.title)}</strong> · ${escapeHtml(s.mode)} · ${escapeHtml(s.status)}</div>
+      <div class="hint">${escapeHtml(s.id)}</div>
+    `;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn load-btn";
+    btn.textContent = "加载此会话";
+    btn.onclick = async () => {
+      currentSessionId = s.id;
+      el.refinalizeMode.value = s.mode;
+      await refreshCurrentSession();
+      document.querySelector('.tab[data-tab="workflow"]').click();
+      setStatus("已加载历史会话。");
+    };
+    card.appendChild(btn);
+    el.history.appendChild(card);
+  }
 }
 
 /** ---------- Recording ---------- */
@@ -390,6 +523,7 @@ el.createSessionBtn.onclick = async () => {
       rewrite_provider: DEFAULT_REWRITE,
     };
     const session = await api("/sessions", { method: "POST", body: JSON.stringify(body) });
+    window.SVI_SHARED.rememberSessionMode(mode);
     currentSessionId = session.id;
     updateSessionSummary(session);
     el.startRecordBtn.disabled = false;
@@ -420,12 +554,7 @@ el.startRecordBtn.onclick = async () => {
   }
 
   recordChunks = [];
-  const mime = pickMimeType();
-  try {
-    mediaRecorder = mime ? new MediaRecorder(waveStream, { mimeType: mime }) : new MediaRecorder(waveStream);
-  } catch {
-    mediaRecorder = new MediaRecorder(waveStream);
-  }
+  mediaRecorder = window.SVI_SHARED.createRecorder(waveStream);
 
   mediaRecorder.ondataavailable = (ev) => {
     if (ev.data && ev.data.size) recordChunks.push(ev.data);
@@ -475,21 +604,15 @@ el.stopRecordBtn.onclick = async () => {
     return;
   }
 
-  const ext = mime.includes("mp4") ? "m4a" : "webm";
-  const form = new FormData();
-  form.append("file", blob, `seg-${Date.now()}.${ext}`);
-  form.append("duration_seconds", String(duration));
-  form.append("stt_provider", DEFAULT_STT);
-
   try {
-    const up = await fetch(
-      `${apiBase}/sessions/${currentSessionId}/segments/upload?auto_transcribe=true`,
-      { method: "POST", body: form }
+    await window.SVI_SHARED.uploadSegmentAudio(
+      apiBase,
+      currentSessionId,
+      blob,
+      mime,
+      duration,
+      DEFAULT_STT
     );
-    if (!up.ok) {
-      const t = await up.text();
-      throw new Error(`${up.status} ${t}`);
-    }
     await refreshCurrentSession();
     startPollingCurrentSession();
     setStatus("本段已上传并完成豆包转写（若失败请看重试）。可多录几段，最后点下方生成 DeepSeek 终稿。");
@@ -546,16 +669,26 @@ el.refinalizeBtn.onclick = async () => {
 };
 
 el.copyBtn.onclick = async () => {
-  const t = el.finalText.value || "";
-  if (!t) return;
-  try {
-    await navigator.clipboard.writeText(t);
-    showToast("已复制到剪贴板。");
-  } catch {
-    el.finalText.select();
-    document.execCommand("copy");
-    showToast("已尝试复制（若失败请手动全选复制）。");
-  }
+  await dispatchSessionOutput("clipboard");
+};
+
+el.outClipboardBtn.onclick = async () => {
+  await dispatchSessionOutput("clipboard");
+};
+el.outPasteBtn.onclick = async () => {
+  await dispatchSessionOutput("active_window_paste");
+};
+el.outMdBtn.onclick = async () => {
+  await dispatchSessionOutput("markdown_file");
+};
+el.outObsidianBtn.onclick = async () => {
+  await dispatchSessionOutput("obsidian_inbox");
+};
+el.outGaehBtn.onclick = async () => {
+  await dispatchSessionOutput("gaeh_goal_file");
+};
+el.outPresetBtn.onclick = async () => {
+  await dispatchSessionOutput(presetDefaultOutputTarget || "clipboard");
 };
 
 el.addSegmentBtn.onclick = async () => {
@@ -575,37 +708,6 @@ el.addSegmentBtn.onclick = async () => {
     showToast(String(e.message || e), true);
   }
 };
-
-async function refreshHistoryList() {
-  const sessions = await api("/sessions");
-  sessions.sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
-  el.history.innerHTML = "";
-  if (!sessions.length) {
-    el.history.innerHTML = '<p class="hint">暂无历史</p>';
-    return;
-  }
-  for (const s of sessions) {
-    const card = document.createElement("div");
-    card.className = "segment-card";
-    card.innerHTML = `
-      <div class="meta"><strong>${escapeHtml(s.title)}</strong> · ${escapeHtml(s.mode)} · ${escapeHtml(s.status)}</div>
-      <div class="hint">${escapeHtml(s.id)}</div>
-    `;
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "btn load-btn";
-    btn.textContent = "加载此会话";
-    btn.onclick = async () => {
-      currentSessionId = s.id;
-      el.refinalizeMode.value = s.mode;
-      await refreshCurrentSession();
-      document.querySelector('.tab[data-tab="workflow"]').click();
-      setStatus("已加载历史会话。");
-    };
-    card.appendChild(btn);
-    el.history.appendChild(card);
-  }
-}
 
 el.refreshHistoryBtn.onclick = () => refreshHistoryList();
 el.clearHistoryBtn.onclick = async () => {
@@ -651,9 +753,26 @@ async function init() {
   setupTabs();
   requestAnimationFrame(() => drawFlatLine());
   await loadModes();
+  await loadPresets();
   await refreshHealth();
   await refreshHistoryList();
   setStatus("第一步：选择整理模式并新建会话；第二步：录音；第三步：片段自动转写；第四步：生成 DeepSeek 终稿。");
 }
 
-init();
+init().catch((e) => {
+  console.error("[SVI] init failed", e);
+  try {
+    const hint = document.createElement("div");
+    hint.style.cssText =
+      "margin:24px;padding:16px;font:14px sans-serif;color:#ffb4b4;background:#2a1515;border-radius:8px;white-space:pre-wrap;";
+    hint.textContent = `界面初始化失败：${e && e.message ? e.message : String(e)}\n\n请打开开发者工具查看控制台。`;
+    document.body.appendChild(hint);
+    const h = document.getElementById("health");
+    if (h) {
+      h.textContent = "脚本异常";
+      h.classList.add("badge-warn");
+    }
+  } catch {
+    /* ignore */
+  }
+});

@@ -1,7 +1,7 @@
 const path = require("path");
 require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 
-const { contextBridge } = require("electron");
+const { contextBridge, ipcRenderer } = require("electron");
 
 function readApiBase() {
   const prefix = "--svi-api-base=";
@@ -14,4 +14,21 @@ function readApiBase() {
 
 contextBridge.exposeInMainWorld("svi", {
   apiBase: readApiBase(),
+  writeClipboard: (text) => ipcRenderer.invoke("svi-write-clipboard", text),
+  pasteForeground: (text) => ipcRenderer.invoke("svi-paste-foreground", text),
+  /** @param {'toggleSegment'|'finalize'} action */
+  subscribeHotkey: (action, cb) => {
+    const map = { toggleSegment: "svi-hotkey-record-toggle", finalize: "svi-hotkey-finalize" };
+    const channel = map[action];
+    if (!channel || typeof cb !== "function") return () => {};
+    const fn = () => {
+      try {
+        cb();
+      } catch {
+        /* ignore */
+      }
+    };
+    ipcRenderer.on(channel, fn);
+    return () => ipcRenderer.removeListener(channel, fn);
+  },
 });

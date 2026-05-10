@@ -37,6 +37,12 @@
               <input id="sessionTitle" type="text" placeholder="例如：本周想法整理" />
             </label>
             <label class="field grow">
+              <span class="label">场景预设（应用后同步整理模式与默认投递目标）</span>
+              <select id="presetSelect">
+                <option value="">— 不使用预设 —</option>
+              </select>
+            </label>
+            <label class="field grow">
               <span class="label">整理模式（DeepSeek 按此生成终稿）</span>
               <select id="sessionMode" required>
                 <option value="intent_cleanup">原意清理 · 适合对话框粘贴</option>
@@ -108,7 +114,16 @@
               <button type="button" id="finalizeBtn" class="btn btn-primary btn-large" disabled>
                 合并全部转写并由 DeepSeek 生成终稿
               </button>
-              <button type="button" id="copyBtn" class="btn" disabled>复制终稿</button>
+              <button type="button" id="copyBtn" class="btn" disabled>复制终稿（Output Router）</button>
+            </div>
+            <div class="controls-row flex-wrap" style="margin-top: 10px">
+              <span class="hint subtle" style="width: 100%">投递（经后端 OutputRouter 审计；文件类依赖 .env 路径）</span>
+              <button type="button" id="outClipboardBtn" class="btn" disabled>剪贴板</button>
+              <button type="button" id="outPasteBtn" class="btn" disabled>粘贴到前台窗口</button>
+              <button type="button" id="outMdBtn" class="btn" disabled>Markdown 文件</button>
+              <button type="button" id="outObsidianBtn" class="btn" disabled>Obsidian Inbox</button>
+              <button type="button" id="outGaehBtn" class="btn" disabled>GAEH inbox</button>
+              <button type="button" id="outPresetBtn" class="btn" disabled>按预设默认投递</button>
             </div>
             <label class="field full">
               <span class="label">输出预览</span>
@@ -154,6 +169,7 @@
       </section>
     </main>
 
+    <script src="./svi-shared.js"></script>
     <script src="./app.js"></script>
   </body>
 </html>

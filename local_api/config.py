@@ -71,5 +71,12 @@ class Settings:
     DEEPSEEK_REWRITE_MODEL = os.getenv("DEEPSEEK_REWRITE_MODEL", "deepseek-chat")
     DEEPSEEK_REWRITE_PATH = os.getenv("DEEPSEEK_REWRITE_PATH", "/chat/completions")
 
+    # Output Router — file targets (G2). Paths validated server-side; never trust raw URL paths from UI alone.
+    SVI_MARKDOWN_OUTPUT_DIR = os.getenv("SVI_MARKDOWN_OUTPUT_DIR", "").strip()
+    OBSIDIAN_VAULT_ROOT = os.getenv("OBSIDIAN_VAULT_ROOT", "").strip()
+    SVI_OBSIDIAN_INBOX_REL = os.getenv("SVI_OBSIDIAN_INBOX_REL", "00_Inbox").strip()
+    SVI_GAEH_PROJECT_ROOT = os.getenv("SVI_GAEH_PROJECT_ROOT", "").strip()
+    SVI_GAEH_INBOX_REL = os.getenv("SVI_GAEH_INBOX_REL", ".gaeh/inbox").strip()
+
 
 settings = Settings()
