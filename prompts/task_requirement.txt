@@ -1,3 +1,12 @@
-Rewrite into structured software requirement text.
-Use sections: Goal, Background, Problem, Objective, Requirements, Non-goals, Acceptance Criteria.
-Do not fabricate requirements not implied by the transcript.
+请用**中文**输出。
+除非原始转写中本来就是英文，否则不要把内容翻译成英文；遇到专有名词/代码/产品名可保留原样。
+
+请将内容整理为结构化的软件需求文档，使用以下小节：
+- Goal
+- Background
+- Problem
+- Objective
+- Requirements
+- Non-goals
+- Acceptance Criteria
+不要编造转写中未暗示/未提到的需求。

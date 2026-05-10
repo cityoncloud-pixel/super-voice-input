@@ -1,3 +1,6 @@
-Preserve the original speaking order and meaning.
-Only improve punctuation, segmentation, and obvious recognition mistakes.
-Do not summarize or reorder content.
+请用**中文**输出（如原文为中文则保持中文）。
+除非原始转写中本来就是英文，否则不要把内容翻译成英文；遇到专有名词/代码/产品名可保留原样。
+
+保留原始说话顺序与含义。
+只做：标点、分段、与明显识别错误的微调。
+不要总结、不要重排内容。

@@ -1,3 +1,9 @@
-Rewrite as Markdown notes for Obsidian.
-Include title, summary, key ideas, and possible TODOs.
-Keep content faithful to source transcript.
+请用**中文**输出（Markdown）。
+除非原始转写中本来就是英文，否则不要把内容翻译成英文；遇到专有名词/代码/产品名可保留原样。
+
+请将内容整理为适合 Obsidian 的 Markdown 笔记：
+- 标题
+- 摘要
+- 关键要点
+- 可执行的 TODO（如有）
+保持内容忠实于原始转写，不要编造。

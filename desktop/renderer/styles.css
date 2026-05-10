@@ -225,6 +225,28 @@ textarea {
   line-height: 1.5;
 }
 
+.seg-details {
+  margin-top: 10px;
+}
+
+.seg-summary {
+  cursor: pointer;
+  color: var(--text);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.seg-details[open] .seg-summary {
+  color: var(--muted);
+}
+
+.seg-textarea {
+  margin-top: 10px;
+  min-height: 140px;
+  resize: vertical;
+  white-space: pre-wrap;
+}
+
 .btn {
   cursor: pointer;
   border-radius: 8px;

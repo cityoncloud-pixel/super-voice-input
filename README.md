@@ -30,8 +30,9 @@
 
 **生产行为（非测试）：**
 
-- 转写：`provider=doubao`，必须配置 `DOUBAO_API_KEY`、`DOUBAO_RESOURCE_ID`（控制台）。接口遵循官方「录音文件识别标准版」：`submit` → `query` 轮询，直至 `X-Api-Status-Code=20000000`。参见火山文档：[大模型录音文件识别标准版API](https://www.volcengine.com/docs/6561/1354868)。
+- 转写：`provider=doubao`，必须配置 `DOUBAO_API_KEY`、`DOUBAO_RESOURCE_ID`。本项目与 verstory 对齐，`DOUBAO_RESOURCE_ID` 推荐使用 `volc.seedasr.auc`（或 `volc.bigasr.auc`）。接口遵循官方「录音文件识别标准版」：`submit` → `query` 轮询，直至 `X-Api-Status-Code=20000000`。参见火山文档：[大模型录音文件识别标准版API](https://www.volcengine.com/docs/6561/1354868)。
 - 豆包云端只能访问 **公网可达** 的音频 URL。推荐两种方式之一：
+  0. **桌面端自动隧道（推荐）**：安装 `cloudflared` 后直接运行桌面端即可，应用会自动建立临时公网地址并配置给后端（无需手动填 `SVI_PUBLIC_BASE_URL`）。
   1. **内网穿透（ngrok 联调）**：
      - 终端 A：在项目根启动 API：`python -m uvicorn local_api.main:app --host 127.0.0.1 --port 8000`（端口与 `.env` 里 `SVI_API_PORT` 一致）。
      - 终端 B：`ngrok http 8000`，复制 **`https://xxxx.ngrok-free.app`**（以 ngrok 控制台为准）。

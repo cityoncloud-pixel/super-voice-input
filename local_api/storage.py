@@ -176,3 +176,9 @@ class SQLiteStore:
     def delete_segment(self, segment_id: str) -> None:
         with self._conn() as conn:
             conn.execute("DELETE FROM voice_segments WHERE id = ?", (segment_id,))
+
+    def clear_all(self) -> None:
+        """Delete all sessions and segments (local-only convenience)."""
+        with self._conn() as conn:
+            conn.execute("DELETE FROM voice_segments")
+            conn.execute("DELETE FROM voice_sessions")

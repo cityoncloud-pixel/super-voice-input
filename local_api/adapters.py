@@ -4,10 +4,11 @@ import json
 import time
 from pathlib import Path
 from urllib import request
+from urllib.error import HTTPError
 from uuid import uuid4
 
 from local_api.audio_url import parse_data_audio_segment
-from local_api.config import settings
+from local_api.config import get_public_base_url, settings
 from local_api.domain import RewriteMode
 
 
@@ -64,9 +65,10 @@ class VoiceSTTAdapter(STTAdapter):
             return audio_file_path
 
         parsed = parse_data_audio_segment(audio_file_path)
-        if parsed and settings.SVI_PUBLIC_BASE_URL:
+        public_base = get_public_base_url()
+        if parsed and public_base:
             session_id, filename = parsed
-            return f"{settings.SVI_PUBLIC_BASE_URL}/files/audio/{session_id}/{filename}"
+            return f"{public_base}/files/audio/{session_id}/{filename}"
 
         if settings.DOUBAO_AUDIO_URL_PREFIX:
             rel = audio_file_path.replace("\\", "/").lstrip("./")
@@ -91,13 +93,32 @@ class VoiceSTTAdapter(STTAdapter):
             headers=headers,
             method="POST",
         )
-        with request.urlopen(req, timeout=60) as resp:
-            status_code = resp.headers.get("X-Api-Status-Code")
-            message = resp.headers.get("X-Api-Message")
-            if status_code and status_code != "20000000":
-                raise RuntimeError(
-                    f"doubao submit failed request_id={request_id} status={status_code} message={message}"
-                )
+        try:
+            with request.urlopen(req, timeout=60) as resp:
+                status_code = resp.headers.get("X-Api-Status-Code")
+                message = resp.headers.get("X-Api-Message")
+                resp_body = ""
+                try:
+                    resp_body = resp.read().decode("utf-8")
+                except Exception:
+                    resp_body = ""
+                if status_code and status_code != "20000000":
+                    raise RuntimeError(
+                        "doubao submit failed "
+                        f"request_id={request_id} status={status_code} message={message} "
+                        f"body={resp_body[:500]}"
+                    )
+        except HTTPError as exc:
+            body = ""
+            try:
+                body = exc.read().decode("utf-8")
+            except Exception:
+                body = ""
+            raise RuntimeError(
+                "doubao submit http error "
+                f"request_id={request_id} http_status={exc.code} reason={exc.reason} body={body[:500]}\n\n"
+                "Hint: check DOUBAO_API_KEY / DOUBAO_RESOURCE_ID / account permission, and DOUBAO_BASE_URL."
+            ) from exc
 
     def _doubao_poll_result(self, request_id: str) -> str:
         started = time.time()
@@ -115,16 +136,31 @@ class VoiceSTTAdapter(STTAdapter):
                 headers=headers,
                 method="POST",
             )
-            with request.urlopen(req, timeout=60) as resp:
-                status_code = resp.headers.get("X-Api-Status-Code")
-                message = resp.headers.get("X-Api-Message")
-                body_text = resp.read().decode("utf-8")
+            try:
+                with request.urlopen(req, timeout=60) as resp:
+                    status_code = resp.headers.get("X-Api-Status-Code")
+                    message = resp.headers.get("X-Api-Message")
+                    body_text = resp.read().decode("utf-8")
+            except HTTPError as exc:
+                body = ""
+                try:
+                    body = exc.read().decode("utf-8")
+                except Exception:
+                    body = ""
+                raise RuntimeError(
+                    "doubao query http error "
+                    f"request_id={request_id} http_status={exc.code} reason={exc.reason} body={body[:500]}\n\n"
+                    "Hint: check DOUBAO_API_KEY / DOUBAO_RESOURCE_ID / account permission."
+                ) from exc
             body = json.loads(body_text) if body_text else {}
 
             if status_code == "20000000":
                 text = self._extract_doubao_text(body)
                 if not text:
-                    raise RuntimeError(f"doubao query empty result request_id={request_id}")
+                    raise RuntimeError(
+                        f"doubao query empty result request_id={request_id} "
+                        f"message={message} body={body_text[:500]}"
+                    )
                 return text
             if status_code in ("20000001", "20000002"):
                 elapsed_ms = int((time.time() - started) * 1000)
@@ -137,18 +173,36 @@ class VoiceSTTAdapter(STTAdapter):
             if status_code == "20000003":
                 raise ValueError(f"doubao detected silent audio request_id={request_id}")
             raise RuntimeError(
-                f"doubao query failed request_id={request_id} status={status_code} message={message}"
+                f"doubao query failed request_id={request_id} status={status_code} message={message} "
+                f"body={body_text[:500]}"
             )
 
     @staticmethod
     def _extract_doubao_text(body: dict) -> str:
         res = body.get("result")
         if isinstance(res, dict):
+            # Common shapes: {"text": "..."} or {"utterances":[{"text":...},...]}
+            utt = res.get("utterances")
+            if isinstance(utt, list) and utt:
+                parts: list[str] = []
+                for u in utt:
+                    if isinstance(u, dict):
+                        t = (u.get("text") or "").strip()
+                        if t:
+                            parts.append(t)
+                if parts:
+                    return "\n".join(parts).strip()
             return (res.get("text") or "").strip()
         if isinstance(res, list) and res:
-            first = res[0]
-            if isinstance(first, dict):
-                return (first.get("text") or "").strip()
+            # Sometimes result is a list of segments; join them to avoid truncation.
+            parts: list[str] = []
+            for item in res:
+                if isinstance(item, dict):
+                    t = (item.get("text") or "").strip()
+                    if t:
+                        parts.append(t)
+            if parts:
+                return "\n".join(parts).strip()
         return ""
 
 

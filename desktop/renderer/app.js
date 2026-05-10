@@ -17,6 +17,9 @@ const MODE_LABELS = {
 };
 
 let currentSessionId = null;
+let lastSegments = [];
+let pollId = null;
+let pollUntil = 0;
 
 const el = {};
 function bindEl() {
@@ -43,6 +46,7 @@ function bindEl() {
   el.addSegmentBtn = document.getElementById("addSegmentBtn");
   el.history = document.getElementById("history");
   el.refreshHistoryBtn = document.getElementById("refreshHistoryBtn");
+  el.clearHistoryBtn = document.getElementById("clearHistoryBtn");
   el.toast = document.getElementById("toast");
 }
 
@@ -155,6 +159,7 @@ function pillLabel(status) {
 }
 
 function renderSegments(segments) {
+  lastSegments = Array.isArray(segments) ? segments : [];
   el.segments.innerHTML = "";
   if (!segments.length) {
     el.segments.innerHTML = '<p class="hint">暂无片段。完成录音并停止本段后，会出现在这里。</p>';
@@ -164,14 +169,18 @@ function renderSegments(segments) {
   for (const s of segments) {
     const card = document.createElement("div");
     card.className = "segment-card";
-    const snippet = (s.raw_transcript || "").trim() || "（尚无转写文本）";
+    const full = (s.raw_transcript || "").trim() || "（尚无转写文本）";
+    const snippet = full.length > 180 ? `${full.slice(0, 180)}…` : full;
     card.innerHTML = `
       <div class="meta">
         <span class="pill ${pillClass(s.status)}">${pillLabel(s.status)}</span>
         <span>第 ${s.order_index} 段</span>
         <span>时长 ${Number(s.duration_seconds).toFixed(1)} s</span>
       </div>
-      <div class="snippet">${escapeHtml(snippet.slice(0, 400))}${snippet.length > 400 ? "…" : ""}</div>
+      <details class="seg-details" ${s.status === "error" ? "open" : ""}>
+        <summary class="seg-summary">${escapeHtml(snippet)}</summary>
+        <textarea class="seg-textarea" rows="10" readonly>${escapeHtml(full)}</textarea>
+      </details>
       ${s.error_message ? `<div class="hint" style="color:#ff9d9d;margin-top:6px">${escapeHtml(s.error_message)}</div>` : ""}
     `;
     const actions = document.createElement("div");
@@ -185,6 +194,7 @@ function renderSegments(segments) {
         setStatus("正在重新请求豆包转写…");
         await api(`/segments/${s.id}/transcribe/retry`, { method: "POST" });
         await refreshCurrentSession();
+        startPollingCurrentSession();
         setStatus("该片段已重新转写。");
       } catch (e) {
         showToast(String(e.message || e), true);
@@ -205,6 +215,38 @@ function renderSegments(segments) {
     el.segments.appendChild(card);
   }
   updateFinalizeEnabled(segments);
+}
+
+function hasTranscribingSegments() {
+  return (lastSegments || []).some((s) => s && s.status === "transcribing");
+}
+
+function stopPolling() {
+  if (pollId) clearInterval(pollId);
+  pollId = null;
+  pollUntil = 0;
+}
+
+function startPollingCurrentSession(maxMs = 180000, intervalMs = 1200) {
+  if (!currentSessionId) return;
+  pollUntil = Date.now() + maxMs;
+  if (pollId) return;
+  pollId = setInterval(async () => {
+    if (!currentSessionId) {
+      stopPolling();
+      return;
+    }
+    if (Date.now() > pollUntil) {
+      stopPolling();
+      return;
+    }
+    try {
+      await refreshCurrentSession();
+      if (!hasTranscribingSegments()) stopPolling();
+    } catch {
+      // ignore transient errors
+    }
+  }, intervalMs);
 }
 
 function escapeHtml(s) {
@@ -449,6 +491,7 @@ el.stopRecordBtn.onclick = async () => {
       throw new Error(`${up.status} ${t}`);
     }
     await refreshCurrentSession();
+    startPollingCurrentSession();
     setStatus("本段已上传并完成豆包转写（若失败请看重试）。可多录几段，最后点下方生成 DeepSeek 终稿。");
     showToast("本段处理完成。");
   } catch (e) {
@@ -535,6 +578,7 @@ el.addSegmentBtn.onclick = async () => {
 
 async function refreshHistoryList() {
   const sessions = await api("/sessions");
+  sessions.sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
   el.history.innerHTML = "";
   if (!sessions.length) {
     el.history.innerHTML = '<p class="hint">暂无历史</p>';
@@ -564,6 +608,22 @@ async function refreshHistoryList() {
 }
 
 el.refreshHistoryBtn.onclick = () => refreshHistoryList();
+el.clearHistoryBtn.onclick = async () => {
+  const ok = confirm("确认清除全部历史会话与片段？此操作不可恢复。");
+  if (!ok) return;
+  try {
+    await api("/sessions", { method: "DELETE", body: JSON.stringify({ delete_audio: true }) });
+    currentSessionId = null;
+    el.finalText.value = "";
+    el.segments.innerHTML = "";
+    updateSessionSummary(null);
+    await refreshHistoryList();
+    setStatus("已清除全部历史会话。");
+    showToast("历史已清除。");
+  } catch (e) {
+    showToast(String(e.message || e), true);
+  }
+};
 }
 
 /** ---------- Tabs ---------- */

@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from local_api.adapters import VoiceSTTAdapter
 from local_api.audio_url import parse_data_audio_segment
-from local_api.config import settings
+from local_api.config import set_public_base_url, settings
 
 
 def test_parse_data_audio_segment_posix():
@@ -27,7 +27,7 @@ def test_parse_data_audio_segment_windows_style():
 
 def test_resolve_audio_url_with_svi_public_base_url(monkeypatch):
     """模拟 .env 中 SVI_PUBLIC_BASE_URL=https://xxx.ngrok-free.app"""
-    monkeypatch.setattr(settings, "SVI_PUBLIC_BASE_URL", "https://abc.ngrok-free.app")
+    set_public_base_url("https://abc.ngrok-free.app")
     monkeypatch.setattr(settings, "DOUBAO_AUDIO_URL_PREFIX", "")
     adapter = VoiceSTTAdapter()
     url = adapter._resolve_audio_url("data/audio/my-session/seg12.webm")
@@ -35,14 +35,14 @@ def test_resolve_audio_url_with_svi_public_base_url(monkeypatch):
 
 
 def test_resolve_audio_url_https_pass_through(monkeypatch):
-    monkeypatch.setattr(settings, "SVI_PUBLIC_BASE_URL", "")
+    set_public_base_url("")
     adapter = VoiceSTTAdapter()
     u = "https://cdn.example.com/a/b.webm"
     assert adapter._resolve_audio_url(u) == u
 
 
 def test_resolve_audio_url_raises_when_no_public_mapping(monkeypatch):
-    monkeypatch.setattr(settings, "SVI_PUBLIC_BASE_URL", "")
+    set_public_base_url("")
     monkeypatch.setattr(settings, "DOUBAO_AUDIO_URL_PREFIX", "")
     adapter = VoiceSTTAdapter()
     with pytest.raises(ValueError, match="Doubao needs a URL"):

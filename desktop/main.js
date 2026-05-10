@@ -15,10 +15,11 @@ const {
 const http = require("http");
 const fs = require("fs");
 const url = require("url");
-const { spawn } = require("child_process");
+const { spawn, spawnSync } = require("child_process");
 
 const API_PORT = process.env.SVI_API_PORT || "8000";
 const API_HOST = process.env.SVI_API_HOST || "127.0.0.1";
+const AUTO_TUNNEL = (process.env.SVI_AUTO_TUNNEL || "1").toLowerCase() !== "0";
 
 let mainWindow = null;
 let tray = null;
@@ -29,6 +30,8 @@ let backendSpawnedByUs = false;
 /** 本地 HTTP 静态服务：页面必须用 http(s) 来源，否则 Chromium 视 file:// 为非安全上下文，getUserMedia 会被拒绝 */
 let rendererHttpServer = null;
 let rendererStaticPort = null;
+let tunnelProcess = null;
+let tunnelPublicUrl = null;
 
 function mimeForExt(ext) {
   const m = {
@@ -186,6 +189,152 @@ function stopBackend() {
   backendSpawnedByUs = false;
 }
 
+function stopTunnel() {
+  if (tunnelProcess && !tunnelProcess.killed) {
+    try {
+      tunnelProcess.kill();
+    } catch {
+      /* ignore */
+    }
+  }
+  tunnelProcess = null;
+  tunnelPublicUrl = null;
+}
+
+function canExecute(cmd) {
+  if (!cmd) return false;
+  const s = String(cmd).trim();
+  if (!s) return false;
+  // If a path is provided (SVI_CLOUDFLARED_PATH), check file existence directly.
+  if (s.includes("\\") || s.includes("/") || s.toLowerCase().endsWith(".exe")) {
+    try {
+      return fs.existsSync(s);
+    } catch {
+      return false;
+    }
+  }
+  // Otherwise, resolve via PATH.
+  try {
+    const r = spawnSync("where", [s], { encoding: "utf-8" });
+    return r.status === 0;
+  } catch {
+    return false;
+  }
+}
+
+function startCloudflaredTunnel(localUrl) {
+  return new Promise((resolve, reject) => {
+    const exe = process.env.SVI_CLOUDFLARED_PATH || "cloudflared";
+    const args = ["tunnel", "--url", localUrl, "--metrics", "127.0.0.1:0"];
+    const p = spawn(exe, args, { shell: false, stdio: ["ignore", "pipe", "pipe"] });
+    let done = false;
+    const lastLines = [];
+    function keepLine(line) {
+      const s = String(line || "").trimEnd();
+      if (!s) return;
+      lastLines.push(s);
+      if (lastLines.length > 80) lastLines.shift();
+    }
+
+    function feed(chunk) {
+      String(chunk)
+        .split(/\r?\n/)
+        .forEach((line) => {
+          keepLine(line);
+          const m = line.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/i);
+          if (m && !done) {
+            done = true;
+            resolve({ process: p, publicUrl: m[0] });
+          }
+        });
+    }
+
+    p.stdout.on("data", feed);
+    p.stderr.on("data", feed);
+    p.on("error", reject);
+    p.on("exit", (code) => {
+      if (!done) {
+        const tail = lastLines.slice(-30).join("\n");
+        reject(new Error(`cloudflared exited code=${code}\n\n${tail}`));
+      }
+    });
+    setTimeout(() => {
+      if (!done) {
+        try {
+          p.kill();
+        } catch {
+          /* ignore */
+        }
+        const tail = lastLines.slice(-30).join("\n");
+        reject(new Error(`cloudflared tunnel timeout\n\n${tail}`));
+      }
+    }, 25000);
+  });
+}
+
+async function postBackendPublicBaseUrl(baseUrl) {
+  const payload = JSON.stringify({ base_url: baseUrl });
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        method: "POST",
+        host: API_HOST,
+        port: Number(API_PORT),
+        path: "/config/public_base_url",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(payload),
+        },
+        timeout: 5000,
+      },
+      (res) => {
+        res.resume();
+        if (res.statusCode === 200) resolve();
+        else reject(new Error(`HTTP ${res.statusCode}`));
+      }
+    );
+    req.on("error", reject);
+    req.write(payload);
+    req.end();
+  });
+}
+
+async function ensureTunnelAndSetBackendBaseUrl() {
+  if (!AUTO_TUNNEL) return;
+  if ((process.env.SVI_PUBLIC_BASE_URL || "").trim()) return;
+  if (tunnelPublicUrl) return;
+
+  const localUrl = `http://${API_HOST}:${API_PORT}`;
+  const exe = process.env.SVI_CLOUDFLARED_PATH || "cloudflared";
+  const hasCloudflared = canExecute(exe);
+  if (!hasCloudflared) {
+    dialog.showErrorBox(
+      "Super Voice Input — 缺少自动公网隧道依赖",
+      "豆包云端需要公网可访问的音频 URL。本应用可自动建立临时公网隧道，但你尚未安装 cloudflared。\n\n" +
+        "请安装 Cloudflare Tunnel（cloudflared），确保命令 `cloudflared` 可用后重启应用。\n\n" +
+        "安装完成后无需再手动配置 SVI_PUBLIC_BASE_URL。"
+    );
+    return;
+  }
+
+  try {
+    stopTunnel();
+    const { process: tp, publicUrl } = await startCloudflaredTunnel(localUrl);
+    tunnelProcess = tp;
+    tunnelPublicUrl = String(publicUrl).replace(/\/+$/, "");
+    console.log(`[SVI] Auto tunnel ready: ${tunnelPublicUrl} -> ${localUrl}`);
+    await postBackendPublicBaseUrl(tunnelPublicUrl);
+  } catch (e) {
+    console.error("[SVI] auto tunnel failed", e);
+    dialog.showErrorBox(
+      "Super Voice Input — 自动公网隧道失败",
+      `无法为豆包建立公网隧道：${e && e.message ? e.message : String(e)}\n\n` +
+        "你仍可手动设置 SVI_PUBLIC_BASE_URL（ngrok）或使用 DOUBAO_AUDIO_URL_PREFIX。"
+    );
+    stopTunnel();
+  }
+}
+
 async function createWindow() {
   const port = await ensureRendererServer();
   const apiBaseArg = `--svi-api-base=http://${API_HOST}:${API_PORT}`;
@@ -239,6 +388,7 @@ app.whenReady().then(async () => {
   const waitMs = skipSpawn ? 35000 : 55000;
   try {
     await waitForBackend(waitMs);
+    await ensureTunnelAndSetBackendBaseUrl();
   } catch (err) {
     console.error("[SVI] 本地 API 未就绪:", err);
     dialog.showErrorBox(
@@ -266,6 +416,7 @@ app.whenReady().then(async () => {
           app.isQuitting = true;
           stopBackend();
           stopRendererServer();
+          stopTunnel();
           app.quit();
         },
       },
@@ -288,4 +439,5 @@ app.on("will-quit", () => {
   globalShortcut.unregisterAll();
   stopBackend();
   stopRendererServer();
+  stopTunnel();
 });

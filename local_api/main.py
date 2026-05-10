@@ -9,10 +9,11 @@ from pydantic import BaseModel, Field
 from starlette.middleware.cors import CORSMiddleware
 
 from local_api.adapters import TemplateRewriteAdapter, VoiceSTTAdapter
-from local_api.config import settings
+from local_api.config import get_public_base_url, set_public_base_url, settings
 from local_api.domain import RewriteMode
 from local_api.service import VoiceService
 from local_api.storage import SQLiteStore
+from local_api.tunnel import CloudflaredTunnel
 
 app = FastAPI(title=settings.APP_NAME, version=settings.APP_VERSION)
 
@@ -29,6 +30,37 @@ service = VoiceService(
     stt=VoiceSTTAdapter(),
     rewrite=TemplateRewriteAdapter(templates_dir=settings.PROMPTS_DIR),
 )
+
+_tunnel: CloudflaredTunnel | None = None
+
+
+@app.on_event("startup")
+def _startup_auto_tunnel() -> None:
+    global _tunnel
+    if settings.SVI_TEST_MODE:
+        return
+    if not settings.SVI_AUTO_TUNNEL:
+        return
+    if get_public_base_url():
+        return
+    if settings.DEFAULT_STT_PROVIDER != "doubao":
+        return
+
+    exe = CloudflaredTunnel.resolve_exe(settings.SVI_CLOUDFLARED_PATH)
+    if not exe:
+        return
+    local_url = f"http://{settings.SVI_API_HOST}:{settings.SVI_API_PORT}"
+    # We intentionally always tunnel the API port because `/files/audio/...` is served by this app.
+    _tunnel = CloudflaredTunnel(exe=exe, local_url=local_url)
+    _tunnel.start_async()
+
+
+@app.on_event("shutdown")
+def _shutdown_auto_tunnel() -> None:
+    global _tunnel
+    if _tunnel:
+        _tunnel.stop()
+        _tunnel = None
 
 
 class CreateSessionRequest(BaseModel):
@@ -53,6 +85,10 @@ class RefinalizeSessionRequest(BaseModel):
     rewrite_provider: str | None = None
 
 
+class ClearAllRequest(BaseModel):
+    delete_audio: bool = True
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -62,6 +98,63 @@ def health() -> dict[str, str]:
 def list_modes():
     return {"modes": [m.value for m in RewriteMode]}
 
+
+class SetPublicBaseUrlRequest(BaseModel):
+    base_url: str = Field(min_length=1)
+
+
+@app.get("/config/public_base_url")
+def get_public_base_url_config():
+    return {"public_base_url": get_public_base_url()}
+
+
+@app.post("/config/public_base_url")
+def set_public_base_url_config(req: SetPublicBaseUrlRequest):
+    set_public_base_url(req.base_url)
+    return {"public_base_url": get_public_base_url()}
+
+
+@app.get("/config/status")
+def config_status():
+    """Non-sensitive configuration visibility for debugging in desktop environments."""
+    tunnel_public = None
+    if _tunnel:
+        tunnel_public = _tunnel.public_url
+        # Keep runtime public_base_url in sync with the current running tunnel URL.
+        # A stale base URL causes Doubao cloud to download from an old/expired hostname.
+        if tunnel_public and get_public_base_url() != tunnel_public:
+            set_public_base_url(tunnel_public)
+    return {
+        "public_base_url": get_public_base_url(),
+        "auto_tunnel": {
+            "enabled": bool(settings.SVI_AUTO_TUNNEL),
+            "cloudflared_path": settings.SVI_CLOUDFLARED_PATH or "cloudflared",
+            "tunnel_public_url": tunnel_public or "",
+        },
+        "doubao": {
+            "base_url": settings.DOUBAO_BASE_URL,
+            "resource_id": settings.DOUBAO_RESOURCE_ID,
+            "api_key_set": bool(settings.DOUBAO_API_KEY),
+            "resource_id_allowed": settings.DOUBAO_RESOURCE_ID in ("volc.seedasr.auc", "volc.bigasr.auc"),
+            "resource_id_examples": ["volc.seedasr.auc", "volc.bigasr.auc"],
+        },
+        "deepseek": {
+            "base_url": settings.DEEPSEEK_BASE_URL,
+            "model": settings.DEEPSEEK_REWRITE_MODEL,
+            "api_key_set": bool(settings.DEEPSEEK_API_KEY),
+        },
+        "test_mode": bool(settings.SVI_TEST_MODE),
+    }
+
+
+@app.get("/debug/segments/{segment_id}/audio_url")
+def debug_segment_audio_url(segment_id: str):
+    """Return the resolved audio.url that will be sent to Doubao for this segment."""
+    seg = service.store.get_segment(segment_id)
+    if not seg:
+        raise HTTPException(status_code=404, detail="segment not found")
+    adapter = VoiceSTTAdapter()
+    return {"segment_id": segment_id, "audio_file_path": seg.audio_file_path, "audio_url": adapter._resolve_audio_url(seg.audio_file_path)}
 
 @app.get("/files/audio/{session_id}/{filename}")
 def serve_segment_audio(session_id: str, filename: str):
@@ -86,6 +179,13 @@ def create_session(req: CreateSessionRequest):
 @app.get("/sessions")
 def list_sessions():
     return service.list_sessions()
+
+
+@app.delete("/sessions")
+def clear_sessions(req: ClearAllRequest = ClearAllRequest()):
+    """Clear all sessions/segments. Uses DELETE on the collection to avoid route conflicts."""
+    service.clear_all(delete_audio=req.delete_audio)
+    return {"cleared": True, "delete_audio": bool(req.delete_audio)}
 
 
 @app.get("/sessions/{session_id}")
@@ -134,14 +234,19 @@ async def upload_segment(
         stt_provider=stt_provider,
     )
     if auto_transcribe:
-        seg = service.retry_transcribe(seg.id)
+        if settings.SVI_TEST_MODE:
+            seg = service.retry_transcribe(seg.id)
+        else:
+            seg = service.start_transcribe_async(seg.id)
     return seg
 
 
 @app.post("/segments/{segment_id}/transcribe/retry")
 def retry_segment_transcribe(segment_id: str):
     try:
-        return service.retry_transcribe(segment_id)
+        if settings.SVI_TEST_MODE:
+            return service.retry_transcribe(segment_id)
+        return service.start_transcribe_async(segment_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

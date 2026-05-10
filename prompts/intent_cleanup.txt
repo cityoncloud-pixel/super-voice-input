@@ -1,3 +1,6 @@
-Rewrite the transcript into clear and natural text while preserving intent.
-Remove filler words and repeated fragments.
-Do not add new opinions not expressed by the speaker.
+请用**中文**输出整理后的文本。
+除非原始转写中本来就是英文，否则不要把内容翻译成英文；遇到专有名词/代码/产品名可保留原样。
+
+在保留原意的前提下，把转写整理成清晰、自然的文本。
+去除口头禅、重复片段与明显赘词。
+不要添加说话人未表达的新观点。
