@@ -107,11 +107,94 @@ G3 稳定后推荐启动；可与 G4 并行文档部分。
 
 ---
 
+## G6 — 模式化提示词通道
+
+### 工作拆解
+1. **Registry**：定义六种 `mode` id 与元数据；与既有 `RewriteMode` / 预设表字段对齐迁移方案。  
+2. **模板**：按 `idea.md` 附录落盘 `prompts/modes/*.md`；实现 `load_prompt_template` + `{{combined_transcript}}` 渲染。  
+3. **服务层**：finalize 路径改为「mode → 模板 → RewriteAdapter」；错误码与日志对齐 SPEC。  
+4. **API**：`GET /modes`；会话更新 `mode`；finalize 使用当前 mode。  
+5. **前端**：下拉数据来自接口；按钮文案「按当前模式整理」；切换 mode + 已有终稿时的提示。  
+6. **测试**：mock 模板目录下多文件，断言不同 mode 走入不同 system prompt。
+
+### Deliverables
+- [ ] SPEC G6 验收标准全满足  
+- [ ] `reports/phase-g6.report.md`
+
+### 依赖
+G0 整理管线可用；建议 **G4** 完成后一并验收预设中的 `rewrite_mode` 与新 id 一致。
+
+---
+
+## G7 — 本次用途单入口（预设 = mode + 投递）
+
+### 工作拆解
+1. **用途 Registry**：落盘 JSON 或扩展 `voice_presets`（字段：`preset_id`、`label`、`mode`、`default_output_target`、`description`）。  
+2. **API**：`GET /use-cases`（或扩展 `/presets` 语义）；创建/切换会话时 body 可传 `use_case_id`，服务端写入 `session.mode` + 返回默认投递。  
+3. **Electron 主面板**：移除并列「场景预设」「整理模式」；改为 **本次用途** 单选 + 说明；**高级设置** 内暴露 mode / output_target / 引擎覆盖。  
+4. **`preview`**：无自动 `outputs` 调用时的 UI 行为（见 SPEC §G7）。  
+5. **悬浮窗**：与主面板用途模型对齐（最小共用 preset 状态）。  
+6. **测试**：API 层用途→mode→target 映射；回归 `pytest`。
+
+### Deliverables
+- [ ] SPEC G7 验收标准全满足  
+- [ ] `reports/phase-g7.report.md`
+
+### 依赖
+**G6**（模板与 mode）、**G1–G2**（投递枚举）。
+
+---
+
+## G8 — 会话自动管理与双入口产品化
+
+### 工作拆解
+1. **后端**：创建会话 API 与当前前端流程对齐；若有「仅缺会话」的中间态，定义 **`ensure`** 行为（可先纯前端组合 `GET` + `POST`）。**completed → 再录音** 时服务端或客户端策略明确（新建会话规则写入 SPEC）。  
+2. **自动标题**：创建会话时默认 `title`；与工作台编辑兼容。  
+3. **主工作台 UI**：开始录音前 **不必** 强制新建会话；空状态文案按 SPEC。  
+4. **悬浮窗**：无会话时录音 → 自动建会话；与 `svi-shared` 记忆的 **用途** 一致。  
+5. **用途切换**：无片段 / 有片段两种路径与提示（modal 或 toast）。  
+6. **状态机**：梳理按钮启用逻辑（可与现有控件渐进对齐）。  
+7. **`GET /output-capabilities`**（或命名等价）：聚合 `.env`/路径配置，返回各 target 可用性；Electron 侧可选附加 `foreground_paste` 能力。  
+8. **桌面投递区**：根据 capabilities 禁用选项并展示原因。  
+9. **测试**：API 与会话状态相关的回归；capabilities 单测。
+
+### Deliverables
+- [ ] SPEC G8 验收标准全满足  
+- [ ] `reports/phase-g8.report.md`
+
+### 依赖
+**G7**（用途 Registry）、**G3**（悬浮窗）、**G1–G2**（投递与配置）。
+
+---
+
+## G9 — 悬浮窗「遥控器」产品化
+
+### 工作拆解
+1. **Electron**：`BrowserWindow`（overlay）设置 `autoHideMenuBar: true`；评估 `alwaysOnTop`、`frame`、宽高固定；不改坏多实例/托盘逻辑。  
+2. **overlay.html / overlay.js**：状态机驱动区块显隐；摘要化片段列表；「查看详情」展开或 `openMainPanel`。  
+3. **文案**：替换「路由」等用语；整理按钮根据 **默认输出目标 / use_case** 动态标签（与 `presetDefaultOutputTarget` 或会话记忆对齐）。  
+4. **快捷键区**：一行脚注或折叠。  
+5. **手工验收**：对照 SPEC §G9；截图或简短录屏入 `reports/phase-g9.report.md`。
+
+### Deliverables
+- [ ] SPEC G9 验收标准全满足  
+- [ ] `reports/phase-g9.report.md`
+
+### 依赖
+**G8**（会话与投递语义）、**G7**（用途与默认投递）。
+
+---
+
 ## 全局执行顺序（汇总）
 
 ```
 G0 → G1 → G2 ─┬→ G3 → G5
                 └→ G4（与 G2/G3 部分并行）
+
+G6：与 G5 可部分并行（文档/模板先行）；与 G4 字段对齐建议在 G4 完成后收口验收。
+G7：在 G6 之后收敛工作台 UX；可与 G3 悬浮窗联动迭代。
+G8：在 G7 之后实施；强化悬浮窗与会话自动创建、completed 后再录、输出能力探测。
+G9：在 G8 之后实施；悬浮窗状态化、隐藏菜单栏、摘要化、文案联动。
 ```
 
 **门禁**：每阶段结束更新 `project_control/phase_status.md`（Current Phase / Done Criteria）。

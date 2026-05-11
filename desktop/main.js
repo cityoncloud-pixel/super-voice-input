@@ -102,6 +102,15 @@ ipcMain.handle("svi-paste-foreground", async (_evt, text) => {
   }
 });
 
+ipcMain.handle("svi-show-main", () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  }
+  return { ok: true };
+});
+
 function mimeForExt(ext) {
   const m = {
     ".html": "text/html; charset=utf-8",
@@ -409,9 +418,12 @@ async function createOverlayWindow() {
   const apiBaseArg = `--svi-api-base=http://${API_HOST}:${API_PORT}`;
   overlayWindow = new BrowserWindow({
     width: 360,
-    height: 260,
+    height: 360,
+    minWidth: 320,
+    minHeight: 280,
     show: true,
     alwaysOnTop: true,
+    autoHideMenuBar: true,
     skipTaskbar: false,
     title: "超级语音输入 · 悬浮",
     webPreferences: {

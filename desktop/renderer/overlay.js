@@ -1,5 +1,5 @@
 /**
- * 悬浮窗：与主面板共用 svi-shared.js 的 API、录音编码与上传格式。
+ * 悬浮窗：G9 状态化「遥控器」；与主面板共用 svi-shared.js。
  */
 
 const apiBase =
@@ -7,26 +7,32 @@ const apiBase =
 
 const S = () => window.SVI_SHARED;
 
+const MAX_SNIPPET = 72;
+
 let sessionId = null;
 let mediaRecorder = null;
 let recordChunks = [];
 let waveStream = null;
 let recordStartedAt = 0;
-/** 与主面板一致：豆包异步转写时需轮询，否则片段一直为 transcribing，整理按钮无法启用 */
 let ovPollId = null;
 let ovPollUntil = 0;
 let lastOvSegments = [];
+/** 最近一次 refresh 的会话，供录音中计算 UI 状态 */
+let lastOvSession = null;
+let cachedUseCases = [];
 
 const ov = {};
 
 function bind() {
   ov.status = document.getElementById("ovStatus");
   ov.transcript = document.getElementById("ovTranscript");
+  ov.sceneLine = document.getElementById("ovSceneLine");
   ov.newBtn = document.getElementById("ovNew");
   ov.rec = document.getElementById("ovRec");
   ov.stop = document.getElementById("ovStop");
   ov.fin = document.getElementById("ovFin");
   ov.copy = document.getElementById("ovCopy");
+  ov.openMain = document.getElementById("ovOpenMain");
 }
 
 async function api(path, options = {}) {
@@ -56,7 +62,6 @@ function stopOvPolling() {
   ovPollUntil = 0;
 }
 
-/** 与 app.js startPollingCurrentSession 对齐：直到没有 transcribing 或超时；首帧立即拉取减少等待 */
 function startOvPolling(maxMs = 180000, intervalMs = 1200) {
   if (!sessionId) return;
   ovPollUntil = Date.now() + maxMs;
@@ -83,6 +88,71 @@ function startOvPolling(maxMs = 180000, intervalMs = 1200) {
   ovPollId = setInterval(tick, intervalMs);
 }
 
+function builtinUseCases() {
+  return [
+    { id: "thinking_clarify", label: "思考澄清", default_output_target: "preview" },
+    { id: "send_to_ai", label: "发给 AI 对话框", default_output_target: "clipboard" },
+    { id: "obsidian_inbox", label: "写入 Obsidian Inbox", default_output_target: "obsidian_inbox" },
+    { id: "gaeh_goal", label: "生成 GAEH Goal", default_output_target: "gaeh_goal_file" },
+    { id: "coding_task", label: "生成编程任务", default_output_target: "clipboard" },
+    { id: "faithful_transcript", label: "忠实转录", default_output_target: "clipboard" },
+  ];
+}
+
+async function loadUseCases() {
+  try {
+    const data = await api("/use-cases");
+    cachedUseCases = Array.isArray(data?.use_cases) && data.use_cases.length ? data.use_cases : builtinUseCases();
+  } catch {
+    cachedUseCases = builtinUseCases();
+  }
+}
+
+function defaultOutputForUseCaseId(ucId) {
+  const row = cachedUseCases.find((x) => x.id === ucId);
+  return (row && row.default_output_target) || "clipboard";
+}
+
+function outputTargetReadable(t) {
+  const m = {
+    preview: "预览（不自动投递）",
+    clipboard: "剪贴板",
+    active_window_paste: "前台粘贴",
+    markdown_file: "Markdown 文件",
+    obsidian_inbox: "Obsidian Inbox",
+    gaeh_goal_file: "GAEH Goal 文件",
+  };
+  return m[t] || t || "—";
+}
+
+function finalizePrimaryLabel(target) {
+  const map = {
+    clipboard: "整理并复制",
+    active_window_paste: "整理并粘贴",
+    markdown_file: "整理并保存",
+    obsidian_inbox: "整理并保存",
+    gaeh_goal_file: "整理为 Goal",
+    preview: "生成终稿",
+  };
+  return map[target] || "整理并输出";
+}
+
+function updateSceneLine(sess) {
+  if (!ov.sceneLine) return;
+  const uc = (sess && sess.use_case_id) || S().lastUseCaseId("send_to_ai");
+  const row = cachedUseCases.find((x) => x.id === uc);
+  const sceneLabel = row?.label || S().useCaseDisplayLabel(uc);
+  const target = defaultOutputForUseCaseId(uc);
+  ov.sceneLine.textContent = `场景：${sceneLabel}　输出：${outputTargetReadable(target)}`;
+}
+
+function updateFinalizeButtonLabel(sess) {
+  if (!ov.fin) return;
+  const uc = (sess && sess.use_case_id) || S().lastUseCaseId("send_to_ai");
+  const target = defaultOutputForUseCaseId(uc);
+  ov.fin.textContent = finalizePrimaryLabel(target);
+}
+
 function renderOvSegments(segments) {
   const box = ov.transcript;
   if (!box) return;
@@ -93,85 +163,251 @@ function renderOvSegments(segments) {
   const lines = segments.map((s) => {
     const st = s.status || "";
     const txt = (s.raw_transcript || "").trim();
-    const snippet = txt.length > 280 ? `${txt.slice(0, 280)}…` : txt;
+    const nChars = txt.length;
+    const dur = Number(s.duration_seconds || 0).toFixed(1);
     const label =
       st === "transcribing"
-        ? "豆包转写中…"
+        ? "转写中"
         : st === "transcribed"
-          ? "转写完成"
+          ? "已转写"
           : st === "error"
-            ? "转写失败"
+            ? "失败"
             : st;
-    const body = snippet ? escapeOvHtml(snippet) : escapeOvHtml(st === "transcribing" ? "（等待结果）" : "（尚无文本）");
-    const err = s.error_message ? `<div style="color:#ff9d9d;margin-top:4px">${escapeOvHtml(s.error_message)}</div>` : "";
-    return `<div class="ov-seg"><span class="ov-seg-meta">第 ${s.order_index} 段 · ${escapeOvHtml(label)}</span><div class="ov-seg-txt">${body}</div>${err}</div>`;
+    const snippet =
+      txt.length > MAX_SNIPPET ? `${txt.slice(0, MAX_SNIPPET)}…` : txt;
+    const bodyShort = snippet
+      ? `<div class="ov-seg-snippet">${escapeOvHtml(snippet)}</div>`
+      : `<span style="color:#6b7380">${escapeOvHtml(st === "transcribing" ? "（等待结果）" : "（尚无文本）")}</span>`;
+    let detailBlock = "";
+    if (txt.length > MAX_SNIPPET) {
+      detailBlock = `<details><summary>查看全文（${nChars} 字）</summary><div class="ov-seg-full">${escapeOvHtml(txt)}</div></details>`;
+    }
+    const err = s.error_message
+      ? `<div style="color:#ff9d9d;margin-top:4px">${escapeOvHtml(s.error_message)}</div>`
+      : "";
+    return `<div class="ov-seg"><span class="ov-seg-meta">第 ${s.order_index} 段 · ${escapeOvHtml(label)} · ${nChars} 字 · ${dur}s</span>${bodyShort}${detailBlock}${err}</div>`;
   });
   box.innerHTML = lines.join("");
 }
 
+function applyOvUiState(sess, segments) {
+  const recOn = !!(mediaRecorder && mediaRecorder.state === "recording");
+  let state = "idle_no_session";
+  if (!sessionId) {
+    state = "idle_no_session";
+  } else if (recOn) {
+    state = "recording";
+  } else if (sess && sess.status === "done") {
+    state = "completed";
+  } else if (sess && sess.status === "error") {
+    state = "error";
+  } else if (hasOvTranscribing(segments)) {
+    state = "transcribing";
+  } else if (
+    Array.isArray(segments) &&
+    segments.some((s) => s.status === "transcribed" && (s.raw_transcript || "").trim())
+  ) {
+    state = "ready_to_finalize";
+  } else {
+    state = "idle_session";
+  }
+  document.body.dataset.ovUiState = state;
+}
+
 function syncButtons(sess, segments) {
   const recOn = mediaRecorder && mediaRecorder.state === "recording";
-  ov.rec.disabled = !sessionId || recOn;
+  ov.rec.disabled = recOn;
   ov.stop.disabled = !sessionId || !recOn;
   const hasSeg =
     Array.isArray(segments) &&
     segments.some((s) => s.status === "transcribed" && (s.raw_transcript || "").trim());
-  ov.fin.disabled = !sessionId || !hasSeg;
+  const doneOrBusy = sess && (sess.status === "done" || sess.status === "processing");
+  ov.fin.disabled = !sessionId || !hasSeg || !!doneOrBusy;
   const ft = (sess && sess.final_text) || "";
   ov.copy.disabled = !sessionId || !String(ft).trim();
+  updateFinalizeButtonLabel(sess || lastOvSession);
+}
+
+async function createOverlaySession() {
+  const uc = S().lastUseCaseId("send_to_ai");
+  const label = S().useCaseDisplayLabel(uc);
+  const title = S().formatAutoSessionTitle(label);
+  const session = await api("/sessions", {
+    method: "POST",
+    body: JSON.stringify({
+      title,
+      use_case_id: uc,
+      rewrite_provider: S().DEFAULT_REWRITE,
+    }),
+  });
+  S().rememberUseCaseId(uc);
+  if (session.mode) {
+    S().rememberSessionMode(session.mode);
+  }
+  sessionId = session.id;
+  stopOvPolling();
+}
+
+async function ensureOverlaySessionForRecording() {
+  if (!sessionId) {
+    await createOverlaySession();
+    return;
+  }
+  const data = await api(`/sessions/${sessionId}`);
+  const st = data.session && data.session.status;
+  if (st === "done") {
+    await createOverlaySession();
+  }
 }
 
 async function refresh() {
   if (!sessionId) {
-    setStatus("未创建会话");
+    setStatus("点击录音将按上次场景自动创建会话。");
+    lastOvSession = null;
     lastOvSegments = [];
     renderOvSegments([]);
     syncButtons(null, []);
+    updateSceneLine(null);
+    applyOvUiState(null, []);
     return;
   }
   const data = await api(`/sessions/${sessionId}`);
   const sess = data.session;
+  lastOvSession = sess;
   const segments = data.segments || [];
   lastOvSegments = segments;
   const transcribing = segments.filter((s) => s.status === "transcribing").length;
   const done = segments.filter((s) => s.status === "transcribed").length;
   const err = segments.filter((s) => s.status === "error").length;
   setStatus(
-    `会话 ${sessionId.slice(0, 10)}… · ${sess.status} · 片段 ${segments.length}（转写中 ${transcribing} · 已完成 ${done}${err ? ` · 失败 ${err}` : ""}）`
+    `会话 ${sessionId.slice(0, 10)}… · ${sess.status} · ${segments.length} 段（转写中 ${transcribing} · 已完成 ${done}${err ? ` · 失败 ${err}` : ""}）`
   );
   renderOvSegments(segments);
   syncButtons(sess, segments);
+  updateSceneLine(sess);
+  applyOvUiState(sess, segments);
 }
 
-async function dispatchClipboard() {
+async function dispatchSessionOutput(target) {
   if (!sessionId) return;
-  const data = await api(`/sessions/${sessionId}/outputs`, {
-    method: "POST",
-    body: JSON.stringify({ target: "clipboard" }),
-  });
+  let data;
+  try {
+    data = await api(`/sessions/${sessionId}/outputs`, {
+      method: "POST",
+      body: JSON.stringify({ target }),
+    });
+  } catch (e) {
+    setStatus(String(e.message || e));
+    return;
+  }
+
   const text = data.final_text || "";
-  const wr = await S().writeClipboardBestEffort(text);
-  const ok = !!wr.ok;
-  const detail = wr.error || "";
-  await api(`/sessions/${sessionId}/output-feedback`, {
-    method: "POST",
-    body: JSON.stringify({ target: "clipboard", success: ok, detail }),
-  });
-  setStatus(ok ? "已通过路由写入剪贴板。" : detail || "剪贴板失败");
+
+  if (!data.requires_client_execution) {
+    const hint = data.written_path ? `已写入：${data.written_path}` : "已完成投递";
+    setStatus(`终稿已生成。${hint}`);
+    await refresh();
+    return;
+  }
+
+  if (target === "clipboard") {
+    const wr = await S().writeClipboardBestEffort(text);
+    const ok = !!wr.ok;
+    const detail = wr.error || "";
+    try {
+      await api(`/sessions/${sessionId}/output-feedback`, {
+        method: "POST",
+        body: JSON.stringify({ target: "clipboard", success: ok, detail }),
+      });
+    } catch (err) {
+      console.warn("[SVI] output-feedback failed", err);
+    }
+    setStatus(ok ? "终稿已生成，已复制到剪贴板。" : detail || "复制到剪贴板失败");
+    await refresh();
+    return;
+  }
+
+  if (target === "active_window_paste") {
+    if (!window.svi || typeof window.svi.pasteForeground !== "function") {
+      try {
+        await api(`/sessions/${sessionId}/output-feedback`, {
+          method: "POST",
+          body: JSON.stringify({
+            target,
+            success: false,
+            detail: "仅 Electron 桌面版支持前台粘贴",
+          }),
+        });
+      } catch (err) {
+        console.warn(err);
+      }
+      setStatus("终稿已生成。前台粘贴仅桌面版可用，请改用复制或主工作台。");
+      await refresh();
+      return;
+    }
+    const r = await window.svi.pasteForeground(text);
+    try {
+      await api(`/sessions/${sessionId}/output-feedback`, {
+        method: "POST",
+        body: JSON.stringify({
+          target,
+          success: !!r.ok,
+          detail: r.error || "",
+        }),
+      });
+    } catch (err) {
+      console.warn(err);
+    }
+    setStatus(r.ok ? "终稿已生成，已尝试粘贴到前台窗口。" : r.error || "粘贴失败");
+    await refresh();
+  }
+}
+
+async function dispatchClipboardOnly() {
+  if (!sessionId) return;
+  await dispatchSessionOutput("clipboard");
+}
+
+async function finalizeThenAutoOutput() {
+  if (!sessionId || ov.fin.disabled) return;
+  try {
+    const session = await api(`/sessions/${sessionId}/finalize`, { method: "POST" });
+    await refresh();
+    if (session.status === "error") {
+      setStatus(session.error_message || "整理失败");
+      return;
+    }
+    if (session.status !== "done" || !String(session.final_text || "").trim()) {
+      return;
+    }
+    const uc = session.use_case_id || S().lastUseCaseId("send_to_ai");
+    const target = defaultOutputForUseCaseId(uc);
+    if (target === "preview") {
+      setStatus("终稿已生成。当前为预览类场景，请到主工作台查看全文或选择投递。");
+      return;
+    }
+    await dispatchSessionOutput(target);
+  } catch (e) {
+    setStatus(String(e.message || e));
+  }
 }
 
 function wire() {
   ov.newBtn.onclick = async () => {
     try {
-      const mode = S().lastSessionMode("intent_cleanup");
+      const uc = S().lastUseCaseId("send_to_ai");
       const session = await api("/sessions", {
         method: "POST",
         body: JSON.stringify({
           title: `悬浮-${new Date().toLocaleString("zh-CN")}`,
-          mode,
+          use_case_id: uc,
           rewrite_provider: S().DEFAULT_REWRITE,
         }),
       });
+      S().rememberUseCaseId(uc);
+      if (session.mode) {
+        S().rememberSessionMode(session.mode);
+      }
       sessionId = session.id;
       stopOvPolling();
       await refresh();
@@ -181,6 +417,12 @@ function wire() {
   };
 
   ov.rec.onclick = async () => {
+    try {
+      await ensureOverlaySessionForRecording();
+    } catch (e) {
+      setStatus(String(e.message || e));
+      return;
+    }
     if (!sessionId) return;
     try {
       waveStream = await navigator.mediaDevices.getUserMedia({
@@ -200,7 +442,8 @@ function wire() {
     };
     recordStartedAt = Date.now();
     mediaRecorder.start(250);
-    syncButtons(null, []);
+    syncButtons(lastOvSession, lastOvSegments);
+    applyOvUiState(lastOvSession, lastOvSegments);
   };
 
   ov.stop.onclick = async () => {
@@ -232,8 +475,8 @@ function wire() {
       }
       setStatus(
         hasOvTranscribing(lastOvSegments)
-          ? "本段已上传；豆包转写进行中，下方列表会刷新（与主工作台一致轮询）。"
-          : "本段已上传并完成转写（或同步测试模式）。"
+          ? "本段已上传，豆包转写进行中…"
+          : "本段已上传并完成转写。"
       );
     } catch (e) {
       setStatus(String(e.message || e));
@@ -241,31 +484,30 @@ function wire() {
   };
 
   ov.fin.onclick = async () => {
-    if (!sessionId || ov.fin.disabled) return;
-    try {
-      await api(`/sessions/${sessionId}/finalize`, { method: "POST" });
-      await refresh();
-    } catch (e) {
-      setStatus(String(e.message || e));
-    }
+    await finalizeThenAutoOutput();
   };
 
   ov.copy.onclick = async () => {
     if (!sessionId || ov.copy.disabled) return;
     try {
-      await dispatchClipboard();
-      await refresh();
+      await dispatchClipboardOnly();
     } catch (e) {
       setStatus(String(e.message || e));
     }
   };
+
+  if (ov.openMain && window.svi && typeof window.svi.showMainWindow === "function") {
+    ov.openMain.onclick = async () => {
+      try {
+        await window.svi.showMainWindow();
+      } catch (e) {
+        setStatus(String(e.message || e));
+      }
+    };
+  }
 }
 
 function toggleRecordShortcut() {
-  if (!sessionId) {
-    setStatus("请先「新建会话」。");
-    return;
-  }
   if (mediaRecorder && mediaRecorder.state === "recording") {
     ov.stop.click();
   } else {
@@ -278,16 +520,17 @@ async function finalizeShortcut() {
     setStatus("无法整理：请确认已有转写成功的片段。");
     return;
   }
-  try {
-    await api(`/sessions/${sessionId}/finalize`, { method: "POST" });
-    await refresh();
-  } catch (e) {
-    setStatus(String(e.message || e));
-  }
+  await finalizeThenAutoOutput();
 }
 
 bind();
 wire();
+
+(async function init() {
+  await loadUseCases();
+  await refresh();
+})();
+
 if (window.svi && typeof window.svi.subscribeHotkey === "function") {
   window.svi.subscribeHotkey("toggleSegment", toggleRecordShortcut);
   window.svi.subscribeHotkey("finalize", finalizeShortcut);

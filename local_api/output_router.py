@@ -42,6 +42,39 @@ class OutputRouter:
     def __init__(self, store: SQLiteStore) -> None:
         self.store = store
 
+    def list_capabilities(self) -> dict[str, list[dict[str, str | bool]]]:
+        """Which OutputTargets are usable given current env; reasons for UI precognition (G8)."""
+        md_raw = (settings.SVI_MARKDOWN_OUTPUT_DIR or "").strip()
+        vault_raw = (settings.OBSIDIAN_VAULT_ROOT or "").strip()
+        gaeh_raw = (settings.SVI_GAEH_PROJECT_ROOT or "").strip()
+        md_ok = bool(md_raw)
+        obs_ok = bool(vault_raw)
+        gaeh_ok = bool(gaeh_raw)
+        targets: list[dict[str, str | bool]] = [
+            {"id": OutputTarget.CLIPBOARD.value, "available": True, "reason": ""},
+            {
+                "id": OutputTarget.ACTIVE_WINDOW_PASTE.value,
+                "available": True,
+                "reason": "依赖桌面客户端执行前台粘贴；部分应用或全屏场景可能失败。",
+            },
+            {
+                "id": OutputTarget.MARKDOWN_FILE.value,
+                "available": md_ok,
+                "reason": "" if md_ok else "未配置环境变量 SVI_MARKDOWN_OUTPUT_DIR",
+            },
+            {
+                "id": OutputTarget.OBSIDIAN_INBOX.value,
+                "available": obs_ok,
+                "reason": "" if obs_ok else "未配置环境变量 OBSIDIAN_VAULT_ROOT",
+            },
+            {
+                "id": OutputTarget.GAEH_GOAL_FILE.value,
+                "available": gaeh_ok,
+                "reason": "" if gaeh_ok else "未配置环境变量 SVI_GAEH_PROJECT_ROOT",
+            },
+        ]
+        return {"targets": targets}
+
     def _touch_session(self, session: VoiceSession) -> None:
         session.updated_at = utc_now_iso()
         self.store.update_session(session)

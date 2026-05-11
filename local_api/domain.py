@@ -30,10 +30,33 @@ class SegmentStatus(str, Enum):
 
 
 class RewriteMode(str, Enum):
-    INTENT_CLEANUP = "intent_cleanup"
+    CLEAN_INTENT = "clean_intent"
+    THINKING_CLARIFY = "thinking_clarify"
     OBSIDIAN_NOTE = "obsidian_note"
-    TASK_REQUIREMENT = "task_requirement"
+    GAEH_GOAL = "gaeh_goal"
+    CODING_TASK = "coding_task"
     FAITHFUL_TRANSCRIPT = "faithful_transcript"
+
+
+# Legacy session / preset values → canonical RewriteMode.value
+LEGACY_MODE_MAP: dict[str, str] = {
+    "intent_cleanup": RewriteMode.CLEAN_INTENT.value,
+    "task_requirement": RewriteMode.GAEH_GOAL.value,
+}
+
+
+def normalize_rewrite_mode(raw: str) -> str:
+    k = (raw or "").strip()
+    return LEGACY_MODE_MAP.get(k, k)
+
+
+def parse_rewrite_mode(raw: str) -> RewriteMode:
+    """Resolve API/session string to RewriteMode; raises ValueError('UNKNOWN_MODE: …')."""
+    n = normalize_rewrite_mode(raw)
+    try:
+        return RewriteMode(n)
+    except ValueError:
+        raise ValueError(f"UNKNOWN_MODE: {raw!r}") from None
 
 
 @dataclass
@@ -48,13 +71,19 @@ class VoiceSession:
     created_at: str
     updated_at: str
     error_message: str
+    use_case_id: str = ""
     last_output_target: str = ""
     last_output_status: str = ""
     last_output_at: str = ""
     last_output_detail: str = ""
 
     @staticmethod
-    def create(title: str, mode: RewriteMode, rewrite_provider: str) -> "VoiceSession":
+    def create(
+        title: str,
+        mode: RewriteMode,
+        rewrite_provider: str,
+        use_case_id: str = "",
+    ) -> "VoiceSession":
         now = utc_now_iso()
         return VoiceSession(
             id=new_id("vs"),
@@ -67,6 +96,7 @@ class VoiceSession:
             created_at=now,
             updated_at=now,
             error_message="",
+            use_case_id=use_case_id,
             last_output_target="",
             last_output_status="",
             last_output_at="",

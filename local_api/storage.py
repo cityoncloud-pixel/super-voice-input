@@ -41,6 +41,8 @@ class SQLiteStore:
                 """
             )
             self._migrate_voice_sessions_output_cols(conn)
+            self._migrate_voice_sessions_use_case_id(conn)
+            self._migrate_legacy_rewrite_modes(conn)
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS voice_segments (
@@ -83,14 +85,29 @@ class SQLiteStore:
         if "last_output_detail" not in cols:
             conn.execute("ALTER TABLE voice_sessions ADD COLUMN last_output_detail TEXT NOT NULL DEFAULT ''")
 
+    def _migrate_voice_sessions_use_case_id(self, conn: sqlite3.Connection) -> None:
+        rows = conn.execute("PRAGMA table_info(voice_sessions)").fetchall()
+        cols = {str(r[1]) for r in rows}
+        if "use_case_id" not in cols:
+            conn.execute("ALTER TABLE voice_sessions ADD COLUMN use_case_id TEXT NOT NULL DEFAULT ''")
+
+    def _migrate_legacy_rewrite_modes(self, conn: sqlite3.Connection) -> None:
+        mapping = (
+            ("intent_cleanup", "clean_intent"),
+            ("task_requirement", "gaeh_goal"),
+        )
+        for old, new in mapping:
+            conn.execute("UPDATE voice_sessions SET mode=? WHERE mode=?", (new, old))
+            conn.execute("UPDATE voice_presets SET rewrite_mode=? WHERE rewrite_mode=?", (new, old))
+
     def _seed_builtin_presets(self, conn: sqlite3.Connection) -> None:
         n = conn.execute("SELECT COUNT(1) AS c FROM voice_presets").fetchone()["c"]
         if int(n) > 0:
             return
         rows = [
-            ("preset_chatgpt", "发给 ChatGPT / 对话框", "intent_cleanup", "clipboard", 10),
+            ("preset_chatgpt", "发给 ChatGPT / 对话框", "clean_intent", "clipboard", 10),
             ("preset_obsidian", "写入 Obsidian Inbox", "obsidian_note", "obsidian_inbox", 20),
-            ("preset_gaeh", "生成 GAEH 任务稿", "task_requirement", "gaeh_goal_file", 30),
+            ("preset_gaeh", "生成 GAEH 任务稿", "gaeh_goal", "gaeh_goal_file", 30),
             ("preset_faithful_clip", "忠实转录 · 剪贴板", "faithful_transcript", "clipboard", 40),
         ]
         conn.executemany(
@@ -109,7 +126,12 @@ class SQLiteStore:
         with self._conn() as conn:
             conn.execute(
                 """
-                INSERT INTO voice_sessions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO voice_sessions (
+                  id, title, mode, status, combined_transcript, final_text, rewrite_provider,
+                  created_at, updated_at, error_message,
+                  last_output_target, last_output_status, last_output_at, last_output_detail,
+                  use_case_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     s.id,
@@ -126,6 +148,7 @@ class SQLiteStore:
                     s.last_output_status,
                     s.last_output_at,
                     s.last_output_detail,
+                    s.use_case_id,
                 ),
             )
         return s
@@ -147,6 +170,7 @@ class SQLiteStore:
                 UPDATE voice_sessions
                 SET title=?, mode=?, status=?, combined_transcript=?, final_text=?,
                     rewrite_provider=?, created_at=?, updated_at=?, error_message=?,
+                    use_case_id=?,
                     last_output_target=?, last_output_status=?, last_output_at=?, last_output_detail=?
                 WHERE id=?
                 """,
@@ -160,6 +184,7 @@ class SQLiteStore:
                     s.created_at,
                     s.updated_at,
                     s.error_message,
+                    s.use_case_id,
                     s.last_output_target,
                     s.last_output_status,
                     s.last_output_at,

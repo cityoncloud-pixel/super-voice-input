@@ -13,9 +13,11 @@ from local_api.domain import (
     SessionStatus,
     VoiceSegment,
     VoiceSession,
+    parse_rewrite_mode,
     utc_now_iso,
 )
 from local_api.storage import SQLiteStore
+from local_api.use_case_registry import resolve_use_case
 
 
 class VoiceService:
@@ -75,8 +77,44 @@ class VoiceService:
         self.store.update_segment(seg)
         return seg
 
-    def create_session(self, title: str, mode: RewriteMode, rewrite_provider: str) -> VoiceSession:
-        return self.store.create_session(VoiceSession.create(title, mode, rewrite_provider))
+    def create_session(
+        self,
+        title: str,
+        mode: RewriteMode,
+        rewrite_provider: str,
+        use_case_id: str = "",
+    ) -> VoiceSession:
+        return self.store.create_session(VoiceSession.create(title, mode, rewrite_provider, use_case_id=use_case_id))
+
+    def patch_session(
+        self,
+        session_id: str,
+        *,
+        mode: str | None = None,
+        title: str | None = None,
+        use_case_id: str | None = None,
+    ) -> VoiceSession:
+        session = self.store.get_session(session_id)
+        if not session:
+            raise ValueError("session not found")
+        if use_case_id is not None:
+            uid = use_case_id.strip()
+            if uid == "":
+                session.use_case_id = ""
+            else:
+                uc = resolve_use_case(uid)
+                if not uc:
+                    raise ValueError(f"UNKNOWN_USE_CASE: {use_case_id!r}")
+                session.mode = parse_rewrite_mode(uc["mode"]).value
+                session.use_case_id = uc["id"]
+        elif mode is not None:
+            session.mode = parse_rewrite_mode(mode).value
+            session.use_case_id = ""
+        if title is not None:
+            session.title = title.strip()
+        session.updated_at = utc_now_iso()
+        self.store.update_session(session)
+        return session
 
     def list_sessions(self) -> list[VoiceSession]:
         return self.store.list_sessions()
@@ -183,11 +221,12 @@ class VoiceService:
 
         session.combined_transcript = "\n".join(s.raw_transcript for s in valid)
         try:
-            mode = RewriteMode(session.mode)
+            mode = parse_rewrite_mode(session.mode)
             session.final_text = self.rewrite_adapter.rewrite(
                 mode=mode,
                 combined_transcript=session.combined_transcript,
                 provider=session.rewrite_provider,
+                session_title=session.title,
             )
             session.status = SessionStatus.DONE.value
         except Exception as exc:
@@ -206,6 +245,7 @@ class VoiceService:
             raise ValueError("session not found")
         if mode is not None:
             session.mode = mode.value
+            session.use_case_id = ""
         if rewrite_provider:
             session.rewrite_provider = rewrite_provider
         session.updated_at = utc_now_iso()

@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld("svi", {
   apiBase: readApiBase(),
   writeClipboard: (text) => ipcRenderer.invoke("svi-write-clipboard", text),
   pasteForeground: (text) => ipcRenderer.invoke("svi-paste-foreground", text),
+  showMainWindow: () => ipcRenderer.invoke("svi-show-main"),
   /** @param {'toggleSegment'|'finalize'} action */
   subscribeHotkey: (action, cb) => {
     const map = { toggleSegment: "svi-hotkey-record-toggle", finalize: "svi-hotkey-finalize" };

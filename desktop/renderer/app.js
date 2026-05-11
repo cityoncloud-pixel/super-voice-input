@@ -8,14 +8,19 @@ const apiBase =
 const DEFAULT_STT = "doubao";
 const DEFAULT_REWRITE = "deepseek";
 
-/** 由「场景预设」下拉同步；用于「按预设默认投递」 */
+/** 由「本次场景」选项的 default_output_target 同步；用于「按场景默认投递」 */
 let presetDefaultOutputTarget = "clipboard";
 
-/** 与后端 RewriteMode 对齐 */
-const MODE_LABELS = {
-  intent_cleanup: "原意清理 · 适合对话框粘贴",
+/** GET /use-cases 缓存，供离线同步说明文案 */
+let cachedUseCases = [];
+
+/** GET /modes 失败时的回退；键须与后端 RewriteMode / registry id 一致 */
+const MODE_LABELS_FALLBACK = {
+  clean_intent: "原意清理 · 适合对话框粘贴",
+  thinking_clarify: "思考澄清 · 提炼困惑与下一步",
   obsidian_note: "Obsidian 笔记 · Markdown",
-  task_requirement: "任务/需求 · 协作开发",
+  gaeh_goal: "GAEH Goal · 目标文档",
+  coding_task: "编程任务 · 可执行施工说明",
   faithful_transcript: "忠实转录 · 少改动",
 };
 
@@ -29,6 +34,8 @@ function bindEl() {
   el.health = document.getElementById("health");
   el.statusLine = document.getElementById("statusLine");
   el.sessionTitle = document.getElementById("sessionTitle");
+  el.useCaseSelect = document.getElementById("useCaseSelect");
+  el.useCaseHint = document.getElementById("useCaseHint");
   el.sessionMode = document.getElementById("sessionMode");
   el.rewriteProvider = document.getElementById("rewriteProvider");
   el.sttProvider = document.getElementById("sttProvider");
@@ -48,7 +55,6 @@ function bindEl() {
   el.outObsidianBtn = document.getElementById("outObsidianBtn");
   el.outGaehBtn = document.getElementById("outGaehBtn");
   el.outPresetBtn = document.getElementById("outPresetBtn");
-  el.presetSelect = document.getElementById("presetSelect");
   el.refinalizeMode = document.getElementById("refinalizeMode");
   el.refinalizeBtn = document.getElementById("refinalizeBtn");
   el.audioPath = document.getElementById("audioPath");
@@ -83,30 +89,48 @@ function setStatus(text) {
 }
 
 /** ---------- Modes ---------- */
-function builtinModes() {
-  return Object.keys(MODE_LABELS);
+function builtinModeRows() {
+  return Object.keys(MODE_LABELS_FALLBACK).map((id) => ({
+    id,
+    name: MODE_LABELS_FALLBACK[id],
+    description: "",
+  }));
 }
 
 /**
  * @param {HTMLSelectElement | null} selectEl
- * @param {unknown} modes - API returns string[]; invalid/empty uses builtin list
+ * @param {unknown} modes - `{modes:[{id,name,description}]}` 或旧式 string[]
  */
 function fillModeSelect(selectEl, modes) {
   if (!selectEl) return;
-  const list = Array.isArray(modes) && modes.length > 0 ? modes : builtinModes();
   selectEl.innerHTML = "";
-  for (const m of list) {
+  let rows = [];
+  if (Array.isArray(modes) && modes.length > 0) {
+    if (typeof modes[0] === "object" && modes[0] && modes[0].id) {
+      rows = modes;
+    } else {
+      rows = modes.map((id) => ({
+        id,
+        name: MODE_LABELS_FALLBACK[id] || id,
+        description: "",
+      }));
+    }
+  } else {
+    rows = builtinModeRows();
+  }
+  for (const m of rows) {
     const opt = document.createElement("option");
-    opt.value = m;
-    opt.textContent = MODE_LABELS[m] || m;
+    opt.value = m.id;
+    opt.textContent = m.name || m.id;
+    if (m.description) opt.title = m.description;
     selectEl.appendChild(opt);
   }
 }
 
-/** 页面一加载就有选项，避免等网络期间下拉为空；也与后端枚举对齐。 */
+/** 页面一加载就有选项，避免等网络期间下拉为空 */
 function seedModeSelects() {
-  fillModeSelect(el.sessionMode, builtinModes());
-  fillModeSelect(el.refinalizeMode, builtinModes());
+  fillModeSelect(el.sessionMode, builtinModeRows());
+  fillModeSelect(el.refinalizeMode, builtinModeRows());
 }
 
 async function loadModes() {
@@ -120,46 +144,104 @@ async function loadModes() {
   }
 }
 
-async function loadPresets() {
-  if (!el.presetSelect) return;
-  try {
-    const data = await api("/presets");
-    const presets = Array.isArray(data?.presets) ? data.presets : [];
-    el.presetSelect.innerHTML = '<option value="">— 不使用预设 —</option>';
-    for (const p of presets) {
-      const opt = document.createElement("option");
-      opt.value = p.id;
-      opt.textContent = p.name || p.id;
-      opt.dataset.rewriteMode = p.rewrite_mode || "";
-      opt.dataset.defaultOutput = p.default_output_target || "clipboard";
-      el.presetSelect.appendChild(opt);
-    }
-  } catch (e) {
-    console.warn("[SVI] /presets 不可用", e);
+function builtinUseCaseRows() {
+  return [
+    {
+      id: "thinking_clarify",
+      label: "思考澄清",
+      mode: "thinking_clarify",
+      default_output_target: "preview",
+      description: "适合想法混乱时，提炼真实问题、核心困惑和下一步（非简单润色）。默认以上方预览为主，可自行复制或投递。",
+    },
+    {
+      id: "send_to_ai",
+      label: "发给 AI 对话框",
+      mode: "clean_intent",
+      default_output_target: "clipboard",
+      description: "整理成自然、清楚的问题或表达，适合粘贴到 ChatGPT、Claude、Cursor。",
+    },
+    {
+      id: "obsidian_inbox",
+      label: "写入 Obsidian Inbox",
+      mode: "obsidian_note",
+      default_output_target: "obsidian_inbox",
+      description: "整理成 Markdown 笔记，并写入配置的 Obsidian Inbox。",
+    },
+    {
+      id: "gaeh_goal",
+      label: "生成 GAEH Goal",
+      mode: "gaeh_goal",
+      default_output_target: "gaeh_goal_file",
+      description: "整理成 GAEH 可消费的目标文档（Background / Problem / Objective / Requirements / Non-goals / Acceptance Criteria）。",
+    },
+    {
+      id: "coding_task",
+      label: "生成编程任务",
+      mode: "coding_task",
+      default_output_target: "clipboard",
+      description: "整理成 Cursor / Codex / Claude Code 可执行的开发任务说明。",
+    },
+    {
+      id: "faithful_transcript",
+      label: "忠实转录",
+      mode: "faithful_transcript",
+      default_output_target: "clipboard",
+      description: "尽量保留原始表达与顺序，只做标点、断句和明显错字修正。",
+    },
+  ];
+}
+
+function fillUseCaseSelect(rows) {
+  if (!el.useCaseSelect) return;
+  el.useCaseSelect.innerHTML = "";
+  const list = Array.isArray(rows) && rows.length ? rows : builtinUseCaseRows();
+  cachedUseCases = list;
+  for (const row of list) {
+    const opt = document.createElement("option");
+    opt.value = row.id;
+    opt.textContent = row.label || row.id;
+    opt.dataset.mode = row.mode || "";
+    opt.dataset.defaultOutput = row.default_output_target || "clipboard";
+    opt.title = row.description || "";
+    el.useCaseSelect.appendChild(opt);
   }
-  el.presetSelect.onchange = () => {
-    const opt = el.presetSelect.selectedOptions[0];
-    if (!opt || !opt.value) {
-      presetDefaultOutputTarget = "clipboard";
-      return;
-    }
-    const rm = opt.dataset.rewriteMode;
-    if (rm && el.sessionMode.querySelector(`option[value="${rm}"]`)) {
-      el.sessionMode.value = rm;
-    }
-    presetDefaultOutputTarget = opt.dataset.defaultOutput || "clipboard";
-  };
+  syncUseCaseHint();
+  applyUseCaseDefaultOutput();
+}
+
+function syncUseCaseHint() {
+  if (!el.useCaseHint || !el.useCaseSelect) return;
+  const opt = el.useCaseSelect.selectedOptions[0];
+  el.useCaseHint.textContent = opt ? opt.title || "" : "";
+}
+
+function applyUseCaseDefaultOutput() {
+  const opt = el.useCaseSelect && el.useCaseSelect.selectedOptions[0];
+  presetDefaultOutputTarget = opt ? opt.dataset.defaultOutput || "clipboard" : "clipboard";
+}
+
+async function loadUseCases() {
+  try {
+    const data = await api("/use-cases");
+    fillUseCaseSelect(Array.isArray(data?.use_cases) ? data.use_cases : []);
+  } catch (e) {
+    console.warn("[SVI] /use-cases 不可用，使用内置场景列表", e);
+    fillUseCaseSelect(builtinUseCaseRows());
+  }
 }
 
 /** ---------- Session UI ---------- */
 function updateSessionSummary(session) {
   if (!session) {
-    el.sessionSummary.textContent = "尚未创建会话";
+    el.sessionSummary.textContent =
+      "尚未创建会话 — 选择场景后可直接点「开始录音」自动创建；也可先填标题并点「新建会话」。";
     el.sessionSummary.classList.add("muted");
     return;
   }
   el.sessionSummary.classList.remove("muted");
-  el.sessionSummary.textContent = `会话 ${session.id.slice(0, 12)}… · 模式 ${session.mode} · 状态 ${session.status}`;
+  const opt = el.useCaseSelect && el.useCaseSelect.selectedOptions[0];
+  const sceneLabel = opt ? opt.textContent : "";
+  el.sessionSummary.textContent = `会话 ${session.id.slice(0, 12)}… · 场景 ${sceneLabel || session.mode} · 状态 ${session.status}`;
 }
 
 function pillClass(status) {
@@ -277,27 +359,79 @@ function escapeHtml(s) {
   return d.innerHTML;
 }
 
+/** @type {Record<string, { available?: boolean, reason?: string }>} */
+let outputCapabilityMap = {};
+
+function applyOutputCapabilityButtons() {
+  const okTarget = (id) => {
+    const row = outputCapabilityMap[id];
+    return !(row && row.available === false);
+  };
+  const hint = (id) => {
+    const row = outputCapabilityMap[id];
+    return row && row.reason ? String(row.reason) : "";
+  };
+  const hasFinal = !!(el.finalText && (el.finalText.value || "").trim());
+  const outOk = hasFinal && !!currentSessionId;
+  el.outClipboardBtn.disabled = !outOk;
+  el.outPasteBtn.disabled = !outOk || !okTarget("active_window_paste");
+  el.outMdBtn.disabled = !outOk || !okTarget("markdown_file");
+  el.outObsidianBtn.disabled = !outOk || !okTarget("obsidian_inbox");
+  el.outGaehBtn.disabled = !outOk || !okTarget("gaeh_goal_file");
+  el.outPresetBtn.disabled = !outOk;
+  el.outPasteBtn.title = hint("active_window_paste") || "前台粘贴到当前输入窗口";
+  el.outMdBtn.title = hint("markdown_file") || "写入 SVI_MARKDOWN_OUTPUT_DIR";
+  el.outObsidianBtn.title = hint("obsidian_inbox") || "写入 Obsidian Inbox";
+  el.outGaehBtn.title = hint("gaeh_goal_file") || "写入 GAEH 项目 inbox";
+}
+
+async function loadOutputCapabilities() {
+  try {
+    const data = await api("/output-capabilities");
+    const targets = Array.isArray(data?.targets) ? data.targets : [];
+    outputCapabilityMap = {};
+    for (const t of targets) {
+      if (t && t.id) outputCapabilityMap[t.id] = t;
+    }
+  } catch (e) {
+    console.warn("[SVI] /output-capabilities", e);
+    outputCapabilityMap = {};
+  }
+  applyOutputCapabilityButtons();
+}
+
 function updateFinalizeEnabled(segments) {
   const ok = segments.some((s) => s.status === "transcribed" && (s.raw_transcript || "").trim());
   el.finalizeBtn.disabled = !currentSessionId || !ok;
   const hasFinal = !!(el.finalText.value || "").trim();
   el.copyBtn.disabled = !hasFinal;
-  const outOk = hasFinal && !!currentSessionId;
-  el.outClipboardBtn.disabled = !outOk;
-  el.outPasteBtn.disabled = !outOk;
-  el.outMdBtn.disabled = !outOk;
-  el.outObsidianBtn.disabled = !outOk;
-  el.outGaehBtn.disabled = !outOk;
-  el.outPresetBtn.disabled = !outOk;
+  applyOutputCapabilityButtons();
 }
 
 async function refreshCurrentSession() {
   if (!currentSessionId) return;
   const data = await api(`/sessions/${currentSessionId}`);
-  updateSessionSummary(data.session);
-  el.finalText.value = data.session.final_text || "";
+  const sess = data.session;
+  const ucId = (sess && sess.use_case_id) || "";
+  if (ucId && el.useCaseSelect && el.useCaseSelect.querySelector(`option[value="${ucId}"]`)) {
+    el.useCaseSelect.value = ucId;
+  } else if (sess && sess.mode && el.useCaseSelect) {
+    const match = [...el.useCaseSelect.options].find((o) => o.dataset.mode === sess.mode);
+    if (match) el.useCaseSelect.value = match.value;
+  }
+  syncUseCaseHint();
+  applyUseCaseDefaultOutput();
+  updateSessionSummary(sess);
+  el.finalText.value = sess.final_text || "";
+  const sm = (sess && sess.mode) || "";
+  if (sm && el.sessionMode && el.sessionMode.querySelector(`option[value="${sm}"]`)) {
+    el.sessionMode.value = sm;
+  }
+  if (sm && el.refinalizeMode && el.refinalizeMode.querySelector(`option[value="${sm}"]`)) {
+    el.refinalizeMode.value = sm;
+  }
   renderSegments(data.segments);
-  if ((data.session.final_text || "").trim()) el.copyBtn.disabled = false;
+  if ((sess.final_text || "").trim()) el.copyBtn.disabled = false;
 }
 
 async function refreshHealth() {
@@ -435,7 +569,7 @@ async function dispatchSessionOutput(target) {
     } catch (err) {
       console.warn("[SVI] output-feedback failed", err);
     }
-    showToast(ok ? "已通过路由写入剪贴板。" : detail || "剪贴板写入失败", !ok);
+    showToast(ok ? "已复制到剪贴板。" : detail || "剪贴板写入失败", !ok);
     await refreshCurrentSession();
     return;
   }
@@ -498,7 +632,6 @@ async function refreshHistoryList() {
     btn.textContent = "加载此会话";
     btn.onclick = async () => {
       currentSessionId = s.id;
-      el.refinalizeMode.value = s.mode;
       await refreshCurrentSession();
       document.querySelector('.tab[data-tab="workflow"]').click();
       setStatus("已加载历史会话。");
@@ -508,22 +641,167 @@ async function refreshHistoryList() {
   }
 }
 
+async function dispatchSceneDefaultOutput() {
+  const t = presetDefaultOutputTarget || "clipboard";
+  if (t === "preview") {
+    showToast("当前场景以预览为主；终稿见上方，可用「复制终稿」或下方具体投递按钮。", false);
+    return;
+  }
+  await dispatchSessionOutput(t);
+}
+
+async function postSessionWithCurrentUseCase() {
+  const useCaseId = (el.useCaseSelect && el.useCaseSelect.value) || "";
+  if (!useCaseId) {
+    throw new Error("请选择本次场景");
+  }
+  const opt = el.useCaseSelect.selectedOptions[0];
+  const label = opt ? opt.textContent.trim() : window.SVI_SHARED.useCaseDisplayLabel(useCaseId);
+  const title =
+    (el.sessionTitle && el.sessionTitle.value.trim()) ||
+    window.SVI_SHARED.formatAutoSessionTitle(label);
+  const session = await api("/sessions", {
+    method: "POST",
+    body: JSON.stringify({
+      title,
+      use_case_id: useCaseId,
+      rewrite_provider: DEFAULT_REWRITE,
+    }),
+  });
+  if (window.SVI_SHARED && typeof window.SVI_SHARED.rememberUseCaseId === "function") {
+    window.SVI_SHARED.rememberUseCaseId(useCaseId);
+  }
+  if (session.mode && window.SVI_SHARED && typeof window.SVI_SHARED.rememberSessionMode === "function") {
+    window.SVI_SHARED.rememberSessionMode(session.mode);
+  }
+  return session;
+}
+
+/** G8：录音前确保有未终稿的会话；无则创建，`done` 则新开 */
+async function ensureSessionBeforeRecording() {
+  const useCaseId = (el.useCaseSelect && el.useCaseSelect.value) || "";
+  if (!useCaseId) {
+    showToast("请先选择「本次场景」（若下拉为空请检查 API）。", true);
+    return false;
+  }
+  if (!currentSessionId) {
+    try {
+      const session = await postSessionWithCurrentUseCase();
+      currentSessionId = session.id;
+      if (el.sessionTitle) el.sessionTitle.value = session.title || "";
+      updateSessionSummary(session);
+      await refreshHistoryList();
+      setStatus("已按当前场景创建会话，正在打开麦克风…");
+      return true;
+    } catch (e) {
+      showToast(String(e.message || e), true);
+      return false;
+    }
+  }
+  try {
+    const data = await api(`/sessions/${currentSessionId}`);
+    const st = data.session && data.session.status;
+    if (st === "done") {
+      const session = await postSessionWithCurrentUseCase();
+      currentSessionId = session.id;
+      if (el.sessionTitle) el.sessionTitle.value = session.title || "";
+      if (el.finalText) el.finalText.value = "";
+      updateSessionSummary(session);
+      await refreshCurrentSession();
+      await refreshHistoryList();
+      setStatus("上一会话已生成终稿；已新建会话，正在打开麦克风…");
+      return true;
+    }
+  } catch (e) {
+    showToast(String(e.message || e), true);
+    return false;
+  }
+  return true;
+}
+
 /** ---------- Recording ---------- */
 function wireEvents() {
+  let priorUseCaseValue = "";
+  if (el.useCaseSelect) {
+    el.useCaseSelect.addEventListener("focus", () => {
+      priorUseCaseValue = el.useCaseSelect.value;
+    });
+    el.useCaseSelect.addEventListener("change", async () => {
+      syncUseCaseHint();
+      applyUseCaseDefaultOutput();
+      if (!currentSessionId) return;
+      if (lastSegments && lastSegments.length > 0) {
+        const ok = confirm("当前会话已有片段，切换场景将影响最终整理方式。是否继续？");
+        if (!ok) {
+          el.useCaseSelect.value = priorUseCaseValue;
+          syncUseCaseHint();
+          applyUseCaseDefaultOutput();
+          return;
+        }
+      }
+      const hasFinal = !!(el.finalText && (el.finalText.value || "").trim());
+      try {
+        await api(`/sessions/${currentSessionId}`, {
+          method: "PATCH",
+          body: JSON.stringify({ use_case_id: (el.useCaseSelect.value || "").trim() }),
+        });
+        priorUseCaseValue = el.useCaseSelect.value;
+        await refreshCurrentSession();
+        if (window.SVI_SHARED && typeof window.SVI_SHARED.rememberUseCaseId === "function") {
+          window.SVI_SHARED.rememberUseCaseId(el.useCaseSelect.value);
+        }
+        if (hasFinal) {
+          showToast("当前已有整理结果。切换场景后可重新整理，原始转写不会丢失。", false);
+        }
+      } catch (e) {
+        showToast(String(e.message || e), true);
+      }
+    });
+  }
+
+  if (el.sessionMode) {
+    el.sessionMode.addEventListener("change", async () => {
+      if (!currentSessionId) return;
+      const hasFinal = !!(el.finalText && (el.finalText.value || "").trim());
+      if (hasFinal) {
+        showToast("当前已有整理结果。切换整理模式后可重新整理，原始转写不会丢失。", false);
+      }
+      try {
+        await api(`/sessions/${currentSessionId}`, {
+          method: "PATCH",
+          body: JSON.stringify({ mode: (el.sessionMode.value || "").trim() }),
+        });
+        await refreshCurrentSession();
+        if (window.SVI_SHARED && typeof window.SVI_SHARED.rememberSessionMode === "function") {
+          window.SVI_SHARED.rememberSessionMode(el.sessionMode.value);
+        }
+      } catch (e) {
+        showToast(String(e.message || e), true);
+      }
+    });
+  }
+
 el.createSessionBtn.onclick = async () => {
   try {
-    const mode = (el.sessionMode.value || "").trim();
-    if (!mode) {
-      showToast("请先选择「整理模式」（若下拉为空请重启应用或检查 API 是否已启动）。", true);
+    const useCaseId = (el.useCaseSelect && el.useCaseSelect.value) || "";
+    if (!useCaseId) {
+      showToast("请先选择「本次场景」（若下拉为空请检查 API 是否已启动）。", true);
       return;
     }
+    const opt = el.useCaseSelect.selectedOptions[0];
+    const label = opt ? opt.textContent.trim() : window.SVI_SHARED.useCaseDisplayLabel(useCaseId);
     const body = {
-      title: el.sessionTitle.value.trim() || `会话-${new Date().toLocaleString("zh-CN")}`,
-      mode,
+      title: el.sessionTitle.value.trim() || window.SVI_SHARED.formatAutoSessionTitle(label),
+      use_case_id: useCaseId,
       rewrite_provider: DEFAULT_REWRITE,
     };
     const session = await api("/sessions", { method: "POST", body: JSON.stringify(body) });
-    window.SVI_SHARED.rememberSessionMode(mode);
+    if (window.SVI_SHARED && typeof window.SVI_SHARED.rememberUseCaseId === "function") {
+      window.SVI_SHARED.rememberUseCaseId(useCaseId);
+    }
+    if (session.mode && window.SVI_SHARED && typeof window.SVI_SHARED.rememberSessionMode === "function") {
+      window.SVI_SHARED.rememberSessionMode(session.mode);
+    }
     currentSessionId = session.id;
     updateSessionSummary(session);
     el.startRecordBtn.disabled = false;
@@ -537,10 +815,8 @@ el.createSessionBtn.onclick = async () => {
 };
 
 el.startRecordBtn.onclick = async () => {
-  if (!currentSessionId) {
-    showToast("请先点击「新建会话」。", true);
-    return;
-  }
+  const ensured = await ensureSessionBeforeRecording();
+  if (!ensured) return;
   try {
     waveStream = await navigator.mediaDevices.getUserMedia({
       audio: {
@@ -630,7 +906,7 @@ el.stopRecordBtn.onclick = async () => {
 
 el.finalizeBtn.onclick = async () => {
   if (!currentSessionId) return;
-  setStatus("正在合并片段并请 DeepSeek 生成终稿…");
+    setStatus("正在合并转写并按当前模式生成终稿…");
   el.finalizeBtn.disabled = true;
   try {
     const session = await api(`/sessions/${currentSessionId}/finalize`, { method: "POST" });
@@ -639,7 +915,7 @@ el.finalizeBtn.onclick = async () => {
       showToast(session.error_message || "生成失败", true);
       setStatus(session.error_message || "生成失败");
     } else {
-      setStatus("DeepSeek 终稿已生成，可复制使用。");
+      setStatus("终稿已生成，可复制或使用投递区。");
       showToast("终稿已生成。");
     }
     await refreshCurrentSession();
@@ -688,7 +964,7 @@ el.outGaehBtn.onclick = async () => {
   await dispatchSessionOutput("gaeh_goal_file");
 };
 el.outPresetBtn.onclick = async () => {
-  await dispatchSessionOutput(presetDefaultOutputTarget || "clipboard");
+  await dispatchSceneDefaultOutput();
 };
 
 el.addSegmentBtn.onclick = async () => {
@@ -752,11 +1028,15 @@ async function init() {
   seedModeSelects();
   setupTabs();
   requestAnimationFrame(() => drawFlatLine());
+  await loadUseCases();
   await loadModes();
-  await loadPresets();
   await refreshHealth();
+  await loadOutputCapabilities();
   await refreshHistoryList();
-  setStatus("第一步：选择整理模式并新建会话；第二步：录音；第三步：片段自动转写；第四步：生成 DeepSeek 终稿。");
+  if (el.startRecordBtn && el.useCaseSelect && el.useCaseSelect.options.length) {
+    el.startRecordBtn.disabled = false;
+  }
+  setStatus("选择本次场景后可直接「开始录音」（自动创建会话）；或先「新建会话」。片段将自动转写，最后按场景整理终稿。");
 }
 
 init().catch((e) => {

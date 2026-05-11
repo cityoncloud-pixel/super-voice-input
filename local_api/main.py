@@ -10,7 +10,9 @@ from starlette.middleware.cors import CORSMiddleware
 
 from local_api.adapters import TemplateRewriteAdapter, VoiceSTTAdapter
 from local_api.config import get_public_base_url, set_public_base_url, settings
-from local_api.domain import RewriteMode
+from local_api.domain import parse_rewrite_mode
+from local_api.mode_registry import list_modes_public
+from local_api.use_case_registry import list_use_cases_public, resolve_use_case
 from local_api.output_router import OutputRouter, OutputTarget
 from local_api.service import VoiceService
 from local_api.storage import SQLiteStore
@@ -29,7 +31,7 @@ app.add_middleware(
 service = VoiceService(
     store=SQLiteStore(db_path=settings.DB_PATH),
     stt=VoiceSTTAdapter(),
-    rewrite=TemplateRewriteAdapter(templates_dir=settings.PROMPTS_DIR),
+    rewrite=TemplateRewriteAdapter(),
 )
 output_router = OutputRouter(store=service.store)
 
@@ -67,8 +69,9 @@ def _shutdown_auto_tunnel() -> None:
 
 class CreateSessionRequest(BaseModel):
     title: str = Field(min_length=1)
-    mode: RewriteMode
     rewrite_provider: str = settings.DEFAULT_REWRITE_PROVIDER
+    use_case_id: str | None = None
+    mode: str | None = None
 
 
 class AddSegmentRequest(BaseModel):
@@ -83,8 +86,14 @@ class RerecordSegmentRequest(BaseModel):
 
 
 class RefinalizeSessionRequest(BaseModel):
-    mode: RewriteMode | None = None
+    mode: str | None = None
     rewrite_provider: str | None = None
+
+
+class PatchSessionRequest(BaseModel):
+    mode: str | None = None
+    title: str | None = Field(None, min_length=1)
+    use_case_id: str | None = None
 
 
 class SessionOutputRequest(BaseModel):
@@ -108,7 +117,17 @@ def health() -> dict[str, str]:
 
 @app.get("/modes")
 def list_modes():
-    return {"modes": [m.value for m in RewriteMode]}
+    return {"modes": list_modes_public()}
+
+
+@app.get("/use-cases")
+def list_use_cases():
+    return {"use_cases": list_use_cases_public()}
+
+
+@app.get("/output-capabilities")
+def output_capabilities():
+    return output_router.list_capabilities()
 
 
 @app.get("/presets")
@@ -190,7 +209,39 @@ def serve_segment_audio(session_id: str, filename: str):
 
 @app.post("/sessions")
 def create_session(req: CreateSessionRequest):
-    return service.create_session(req.title, req.mode, req.rewrite_provider)
+    use_case_id_val = ""
+    try:
+        if req.use_case_id:
+            uc = resolve_use_case(req.use_case_id)
+            if not uc:
+                raise HTTPException(status_code=400, detail=f"UNKNOWN_USE_CASE: {req.use_case_id!r}")
+            mode = parse_rewrite_mode(uc["mode"])
+            use_case_id_val = uc["id"]
+        elif req.mode:
+            mode = parse_rewrite_mode(req.mode)
+        else:
+            raise HTTPException(status_code=400, detail="use_case_id or mode is required")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return service.create_session(req.title, mode, req.rewrite_provider, use_case_id=use_case_id_val)
+
+
+@app.patch("/sessions/{session_id}")
+def patch_session(session_id: str, req: PatchSessionRequest):
+    try:
+        return service.patch_session(
+            session_id,
+            mode=req.mode,
+            title=req.title,
+            use_case_id=req.use_case_id,
+        )
+    except ValueError as exc:
+        msg = str(exc)
+        if msg.startswith("UNKNOWN_MODE"):
+            raise HTTPException(status_code=400, detail=msg) from exc
+        if msg.startswith("UNKNOWN_USE_CASE"):
+            raise HTTPException(status_code=400, detail=msg) from exc
+        raise HTTPException(status_code=404, detail=msg) from exc
 
 
 @app.get("/sessions")
@@ -296,10 +347,16 @@ def finalize_session(session_id: str):
 
 @app.post("/sessions/{session_id}/refinalize")
 def refinalize_session(session_id: str, req: RefinalizeSessionRequest):
+    mode_enum = None
+    if req.mode is not None:
+        try:
+            mode_enum = parse_rewrite_mode(req.mode)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
     try:
         return service.refinalize_session(
             session_id=session_id,
-            mode=req.mode,
+            mode=mode_enum,
             rewrite_provider=req.rewrite_provider,
         )
     except ValueError as exc:

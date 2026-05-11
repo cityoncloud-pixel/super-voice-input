@@ -1,0 +1,38 @@
+[
+  {
+    "id": "clean_intent",
+    "name": "原意清理",
+    "description": "适合发给 ChatGPT、Claude 或普通输入框；忠实原意、轻度润色。",
+    "prompt_template": "clean_intent.md"
+  },
+  {
+    "id": "thinking_clarify",
+    "name": "思考澄清",
+    "description": "适合想法混乱时：提炼真实意图、困惑、隐含问题与下一步追问（非简单润色）。",
+    "prompt_template": "thinking_clarify.md"
+  },
+  {
+    "id": "obsidian_note",
+    "name": "Obsidian 笔记",
+    "description": "整理成可保存的结构化 Markdown 笔记。",
+    "prompt_template": "obsidian_note.md"
+  },
+  {
+    "id": "gaeh_goal",
+    "name": "GAEH Goal",
+    "description": "整理成 GAEH 可消费的软件/流程目标文档。",
+    "prompt_template": "gaeh_goal.md"
+  },
+  {
+    "id": "coding_task",
+    "name": "编程任务",
+    "description": "整理成 Cursor / Codex 可执行的具体开发任务（施工级）。",
+    "prompt_template": "coding_task.md"
+  },
+  {
+    "id": "faithful_transcript",
+    "name": "忠实转录",
+    "description": "尽量保留原始表达与顺序，仅轻度修正错字与标点。",
+    "prompt_template": "faithful_transcript.md"
+  }
+]

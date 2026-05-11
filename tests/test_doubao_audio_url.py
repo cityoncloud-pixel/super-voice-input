@@ -47,3 +47,10 @@ def test_resolve_audio_url_raises_when_no_public_mapping(monkeypatch):
     adapter = VoiceSTTAdapter()
     with pytest.raises(ValueError, match="Doubao needs a URL"):
         adapter._resolve_audio_url("data/audio/s/x.webm")
+
+
+def test_reject_localhost_audio_url_for_doubao():
+    """豆包不能拉取 127.0.0.1/localhost 上的 URL。"""
+    adapter = VoiceSTTAdapter()
+    with pytest.raises(ValueError, match="localhost"):
+        adapter._reject_localhost_audio_url("http://127.0.0.1:8000/files/audio/vs_1/a.webm")

@@ -7,6 +7,7 @@
   const DEFAULT_REWRITE = "deepseek";
 
   const LS_MODE = "svi.lastSessionMode";
+  const LS_USE_CASE = "svi.lastUseCaseId";
 
   function pickMimeType() {
     const candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
@@ -84,10 +85,48 @@
   function lastSessionMode(fallback) {
     try {
       const v = localStorage.getItem(LS_MODE);
-      return v || fallback || "intent_cleanup";
+      return v || fallback || "clean_intent";
     } catch {
-      return fallback || "intent_cleanup";
+      return fallback || "clean_intent";
     }
+  }
+
+  function rememberUseCaseId(id) {
+    try {
+      if (id) localStorage.setItem(LS_USE_CASE, id);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function lastUseCaseId(fallback) {
+    try {
+      const v = localStorage.getItem(LS_USE_CASE);
+      return v || fallback || "send_to_ai";
+    } catch {
+      return fallback || "send_to_ai";
+    }
+  }
+
+  /** 与 app.js builtin 场景一致，供悬浮窗等无下拉处生成默认标题 */
+  function useCaseDisplayLabel(id) {
+    const m = {
+      thinking_clarify: "思考澄清",
+      send_to_ai: "发给 AI 对话框",
+      obsidian_inbox: "写入 Obsidian Inbox",
+      gaeh_goal: "生成 GAEH Goal",
+      coding_task: "生成编程任务",
+      faithful_transcript: "忠实转录",
+    };
+    return m[id] || id || "会话";
+  }
+
+  /** G8：自动会话标题 `{场景名} YYYY-MM-DD HH:mm` */
+  function formatAutoSessionTitle(displayLabel) {
+    const pad = (n) => String(n).padStart(2, "0");
+    const d = new Date();
+    const name = String(displayLabel || "").trim() || "会话";
+    return `${name} ${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
 
   /**
@@ -148,12 +187,17 @@
     DEFAULT_STT,
     DEFAULT_REWRITE,
     LS_MODE,
+    LS_USE_CASE,
     pickMimeType,
     createRecorder,
     fetchApi,
     uploadSegmentAudio,
     rememberSessionMode,
     lastSessionMode,
+    rememberUseCaseId,
+    lastUseCaseId,
+    useCaseDisplayLabel,
+    formatAutoSessionTitle,
     fallbackExecCommandCopy,
     writeClipboardBestEffort,
   };

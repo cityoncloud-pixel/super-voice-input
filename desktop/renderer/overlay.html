@@ -3,39 +3,53 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>超级语音 · 悬浮</title>
+    <title>超级语音输入</title>
     <link rel="stylesheet" href="./styles.css" />
     <style>
       body {
         margin: 0;
-        padding: 14px;
+        padding: 12px 14px 10px;
         max-width: 420px;
       }
       .overlay-title {
         font-weight: 600;
+        margin-bottom: 4px;
+        font-size: 15px;
+      }
+      .ov-scene-line {
+        font-size: 12px;
+        color: #8b96a8;
         margin-bottom: 8px;
+        line-height: 1.4;
       }
       .ov-status {
         font-size: 13px;
         color: #9aa4b2;
-        margin: 8px 0 12px;
+        margin: 6px 0 10px;
         line-height: 1.45;
       }
       .ov-actions {
         display: flex;
         flex-wrap: wrap;
         gap: 8px;
-        margin-bottom: 10px;
+        margin-bottom: 8px;
+      }
+      .ov-actions.ov-hide-when-recording {
+        transition: opacity 0.15s;
+      }
+      body[data-ov-ui-state="recording"] .ov-hide-when-recording {
+        display: none;
       }
       .hint-keys {
-        font-size: 12px;
+        font-size: 11px;
         color: #6b7380;
-        margin-top: 8px;
+        margin: 6px 0 0;
+        line-height: 1.35;
       }
       .ov-transcript {
-        margin-top: 10px;
-        padding: 10px;
-        max-height: 180px;
+        margin-top: 8px;
+        padding: 8px 10px;
+        max-height: 140px;
         overflow: auto;
         font-size: 12px;
         line-height: 1.45;
@@ -45,7 +59,7 @@
         border: 1px solid #2a3344;
       }
       .ov-seg {
-        margin-bottom: 10px;
+        margin-bottom: 8px;
       }
       .ov-seg:last-child {
         margin-bottom: 0;
@@ -54,30 +68,49 @@
         display: block;
         font-size: 11px;
         color: #7a8699;
-        margin-bottom: 4px;
+        margin-bottom: 3px;
       }
-      .ov-seg-txt {
+      .ov-seg-snippet {
         white-space: pre-wrap;
         word-break: break-word;
+        font-size: 11px;
+        color: #aeb6c2;
+      }
+      .ov-seg details {
+        margin-top: 4px;
+      }
+      .ov-seg summary {
+        cursor: pointer;
+        font-size: 11px;
+        color: #6ea8fe;
+      }
+      .ov-seg-full {
+        margin-top: 6px;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-size: 11px;
+        max-height: 120px;
+        overflow: auto;
       }
     </style>
   </head>
-  <body>
-    <div class="overlay-title">超级语音输入 · 悬浮入口</div>
-    <div id="ovStatus" class="ov-status">未创建会话。可先打开主面板或使用下方「新建会话」。</div>
-    <div id="ovTranscript" class="ov-transcript">暂无片段。停止本段后将在此显示豆包转写进度与文本。</div>
+  <body data-ov-ui-state="idle_no_session">
+    <div class="overlay-title">超级语音输入</div>
+    <div id="ovSceneLine" class="ov-scene-line">场景：—　输出：—</div>
+    <div id="ovStatus" class="ov-status">点击录音将按上次场景自动创建会话。</div>
+    <div id="ovTranscript" class="ov-transcript"><span style="color:#6b7380">暂无片段。</span></div>
     <div class="ov-actions">
-      <button type="button" id="ovNew" class="btn btn-primary btn-small">新建会话</button>
-      <button type="button" id="ovRec" class="btn btn-accent btn-small" disabled>● 录音</button>
+      <button type="button" id="ovNew" class="btn btn-small">新建会话</button>
+      <button type="button" id="ovRec" class="btn btn-accent btn-small">● 录音</button>
       <button type="button" id="ovStop" class="btn btn-small" disabled>■ 停止本段</button>
     </div>
-    <div class="ov-actions">
-      <button type="button" id="ovFin" class="btn btn-primary btn-small" disabled>整理终稿</button>
-      <button type="button" id="ovCopy" class="btn btn-small" disabled>路由 · 剪贴板</button>
+    <div class="ov-actions ov-hide-when-recording">
+      <button type="button" id="ovFin" class="btn btn-primary btn-small" disabled>整理并复制</button>
+      <button type="button" id="ovCopy" class="btn btn-small" disabled>复制到剪贴板</button>
+      <button type="button" id="ovOpenMain" class="btn btn-small">主工作台</button>
     </div>
     <p class="hint-keys">
-      全局快捷键：<kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Space</kbd> 切换本段录音 /
-      <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Enter</kbd> 触发整理（须已新建会话并有可整理片段）
+      <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Space</kbd> 录音/停段 · <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Enter</kbd> 整理并输出
     </p>
     <script src="./svi-shared.js"></script>
     <script src="./overlay.js"></script>

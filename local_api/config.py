@@ -62,6 +62,8 @@ class Settings:
     DOUBAO_POLL_INTERVAL_MS = int(os.getenv("DOUBAO_POLL_INTERVAL_MS", "1200"))
     DOUBAO_POLL_TIMEOUT_MS = int(os.getenv("DOUBAO_POLL_TIMEOUT_MS", "90000"))
     DOUBAO_AUDIO_URL_PREFIX = os.getenv("DOUBAO_AUDIO_URL_PREFIX", "")
+    # 提交豆包前是否对本机发起 GET 探测音频 URL（部分 ngrok 场景可能误报，可设 1 跳过）
+    SVI_SKIP_AUDIO_URL_PROBE = os.getenv("SVI_SKIP_AUDIO_URL_PROBE", "").lower() in ("1", "true", "yes")
     # Build Doubao audio.url as {SVI_PUBLIC_BASE_URL}/files/audio/{session_id}/{filename}
     # NOTE: prefer get_public_base_url() for runtime updates (desktop auto-tunnel).
     SVI_PUBLIC_BASE_URL = os.getenv("SVI_PUBLIC_BASE_URL", "").strip().rstrip("/")

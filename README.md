@@ -51,7 +51,9 @@ Current scope:
 - Segment rerecord
 - Session finalize (`combined_transcript` + `final_text`)
 - Session refinalize (history re-organization)
-- Prompt templates in `prompts/`
+- **整理模式（G6）**：六种模式；提示词在 `prompts/modes/*.md`，注册表 `prompts/modes/registry.json`；`GET /modes` 供高级设置  
+- **本次场景（G7）**：`prompts/use_cases/registry.json`；`GET /use-cases`；`POST /sessions` 可用 **`use_case_id`**（自动绑定 **mode** + 默认投递语义）；主面板首屏只选场景，整理模式在高级设置覆盖  
+- **会话与投递（G8）**：开始录音时可自动创建会话（默认标题 `{场景名} YYYY-MM-DD HH:mm`）；终稿状态后再录音会新建会话；**`GET /output-capabilities`** 用于投递按钮前置可用性（路径未配时禁用并提示）
 
 ## Desktop App (Electron)
 
@@ -66,8 +68,8 @@ Current scope:
 - **单实例**：同一时间只允许运行 **一个** Electron 进程；否则可能拉起第二个 uvicorn，导致 **API 端口占用(10048)**。第二次启动会聚焦已有窗口。
 - **工作台与悬浮窗共用逻辑**：`desktop/renderer/svi-shared.js` 统一 **录音 MIME 选择、`MediaRecorder` 构造、`/segments/upload` multipart** 与 **`fetchApi` 错误提示**，避免两套请求不一致。
 - **Output Router**：终稿投递走 `POST /sessions/{id}/outputs`（见 OpenAPI）。剪贴板与「粘贴到前台窗口」由 **Electron 主进程**执行并回报 `output-feedback`；Markdown / Obsidian Inbox / GAEH 文件由 **后端**写入（路径见 `.env.example`）。
-- **场景预设**：后端 `GET /presets` 提供内置预设；主面板可选预设并「按预设默认投递」。
-- **界面流程（主面板）**：① 新建会话并选择整理模式（可选场景预设）→ ② 录音（实时波形）→ 每段「停止」后自动上传并由豆包转写 → ③ 列表查看片段 → ④ 一键「DeepSeek 生成终稿」→ ⑤ 投递区（剪贴板 / 前台粘贴 / 文件类）。
+- **本次场景**：后端 `GET /use-cases` 提供六种场景（绑定默认 **mode** 与默认投递语义）；主面板首屏选场景，高级设置可覆盖 **整理模式** / 引擎。
+- **界面流程（主面板）**：① 新建会话并选择 **本次场景**（高级设置可选覆盖整理模式）→ ② 录音（实时波形）→ 每段「停止」后自动上传并由豆包转写 → ③ 列表查看片段 → ④ **按当前场景整理**（或高级里指定的模式）→ ⑤ 投递区（剪贴板 / 前台粘贴 / 文件类）。
 - **录音权限**：窗口内容由内置 **HTTP（127.0.0.1 随机端口）** 提供而非 `file://`，以满足 Chromium 对麦克风所需的「安全上下文」；否则会出现点击录音无声 / `getUserMedia` 被拒绝。
 - 录音上传后会 **默认自动转写**（`upload?auto_transcribe=true`）。
 

@@ -16,7 +16,7 @@ def test_session_segment_transcribe_finalize_flow():
         "/sessions",
         json={
             "title": "mvp flow",
-            "mode": "intent_cleanup",
+            "mode": "clean_intent",
             "rewrite_provider": "mock-rewrite",
         },
     )
@@ -84,7 +84,7 @@ def test_refinalize_changes_mode():
         "/sessions",
         json={
             "title": "refinalize flow",
-            "mode": "intent_cleanup",
+            "mode": "clean_intent",
             "rewrite_provider": "mock-rewrite",
         },
     )
@@ -103,12 +103,34 @@ def test_refinalize_changes_mode():
 
     refinalize_resp = client.post(
         f"/sessions/{session_id}/refinalize",
-        json={"mode": "task_requirement", "rewrite_provider": "mock-rewrite"},
+        json={"mode": "gaeh_goal", "rewrite_provider": "mock-rewrite"},
     )
     assert refinalize_resp.status_code == 200
     data = refinalize_resp.json()
     assert data["status"] == "done"
-    assert data["mode"] == "task_requirement"
+    assert data["mode"] == "gaeh_goal"
+
+
+def test_legacy_mode_aliases_map():
+    session_resp = client.post(
+        "/sessions",
+        json={
+            "title": "legacy alias",
+            "mode": "intent_cleanup",
+            "rewrite_provider": "mock-rewrite",
+        },
+    )
+    assert session_resp.status_code == 200
+    assert session_resp.json()["mode"] == "clean_intent"
+
+
+def test_unknown_mode_rejected():
+    r = client.post(
+        "/sessions",
+        json={"title": "bad", "mode": "__not_a_mode__", "rewrite_provider": "mock-rewrite"},
+    )
+    assert r.status_code == 400
+    assert "UNKNOWN_MODE" in r.json()["detail"]
 
 
 def test_upload_segment_endpoint():

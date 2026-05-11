@@ -17,7 +17,7 @@ def _finalize_session():
         "/sessions",
         json={
             "title": "output router",
-            "mode": "intent_cleanup",
+            "mode": "clean_intent",
             "rewrite_provider": "mock-rewrite",
         },
     )
@@ -83,7 +83,10 @@ def test_outputs_markdown_file_writes(tmp_path, monkeypatch):
     assert p.read_text(encoding="utf-8")
 
 
-def test_outputs_obsidian_requires_vault():
+def test_outputs_obsidian_requires_vault(monkeypatch):
+    import local_api.config as cfg
+
+    monkeypatch.setattr(cfg.settings, "OBSIDIAN_VAULT_ROOT", "")
     sid = _finalize_session()
     out = client.post(f"/sessions/{sid}/outputs", json={"target": "obsidian_inbox"})
     assert out.status_code == 400

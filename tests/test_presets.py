@@ -16,4 +16,4 @@ def test_presets_lists_builtin():
     presets = r.json()["presets"]
     assert len(presets) >= 3
     modes = {p["rewrite_mode"] for p in presets}
-    assert "intent_cleanup" in modes
+    assert "clean_intent" in modes

@@ -1,0 +1,44 @@
+[
+  {
+    "id": "thinking_clarify",
+    "label": "思考澄清",
+    "mode": "thinking_clarify",
+    "default_output_target": "preview",
+    "description": "适合想法混乱时，提炼真实问题、核心困惑和下一步（非简单润色）。默认以上方预览为主，可自行复制或投递。"
+  },
+  {
+    "id": "send_to_ai",
+    "label": "发给 AI 对话框",
+    "mode": "clean_intent",
+    "default_output_target": "clipboard",
+    "description": "整理成自然、清楚的问题或表达，适合粘贴到 ChatGPT、Claude、Cursor。"
+  },
+  {
+    "id": "obsidian_inbox",
+    "label": "写入 Obsidian Inbox",
+    "mode": "obsidian_note",
+    "default_output_target": "obsidian_inbox",
+    "description": "整理成 Markdown 笔记，并写入配置的 Obsidian Inbox。"
+  },
+  {
+    "id": "gaeh_goal",
+    "label": "生成 GAEH Goal",
+    "mode": "gaeh_goal",
+    "default_output_target": "gaeh_goal_file",
+    "description": "整理成 GAEH 可消费的目标文档（Background / Problem / Objective / Requirements / Non-goals / Acceptance Criteria）。"
+  },
+  {
+    "id": "coding_task",
+    "label": "生成编程任务",
+    "mode": "coding_task",
+    "default_output_target": "clipboard",
+    "description": "整理成 Cursor / Codex / Claude Code 可执行的开发任务说明。"
+  },
+  {
+    "id": "faithful_transcript",
+    "label": "忠实转录",
+    "mode": "faithful_transcript",
+    "default_output_target": "clipboard",
+    "description": "尽量保留原始表达与顺序，只做标点、断句和明显错字修正。"
+  }
+]
