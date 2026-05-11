@@ -57,8 +57,21 @@ Current scope:
 
 ## Desktop App (Electron)
 
-- `npm install`
-- `npm run desktop` — **会自动在本机启动** `uvicorn`（工作目录为仓库根目录）。若你已手动起 API，可先设置环境变量 `SVI_SKIP_BACKEND=1` 再启动 Electron。
+### 日常启动（不需要两个终端）
+
+本项目设计为 **只开一个终端、一条命令**：Electron 主进程会在后台 **自动拉起** `uvicorn`（子进程），无需你再开一个窗口专门跑 Python。
+
+| 场景 | 命令 |
+|------|------|
+| **日常使用（推荐）** | 在仓库根目录执行：`npm run desktop` 或 `npm start` |
+| **Windows 双击** | 可使用仓库根目录的 `launch-desktop.bat`（双击前请先在该目录执行过一次 `npm install`） |
+
+说明：
+
+- **不要**同时「终端 A 手动 uvicorn + 终端 B npm」除非你刻意调试后端；重复启动容易导致端口占用。若某端口上已有 `/health`，Electron **会跳过** 再启 uvicorn。
+- 只有在你希望 **Python 与 Electron 完全分离**（例如开发时用 `npm run dev` 里的 `SVI_SKIP_BACKEND=1`）时，才需要单独起一个 uvicorn；那是可选的开发模式，不是日常刚需。
+
+首次在本机克隆仓库后：`pip install -r requirements.txt`，再在仓库根目录 **`npm install`**。之后日常只需 **`npm run desktop`**（或 **`npm start`**）；Electron 会在仓库根目录 **自动启动子进程 uvicorn**。若你已手动起 API，可设 **`SVI_SKIP_BACKEND=1`** 再启动 Electron，以免重复占端口。
 - **自动重启（开发）**：
   - **`npm run dev`**（推荐）：并行 **`dev:api`**（`uvicorn --reload`，改 `local_api/` 等 Python 即重启）与 **`dev:electron`**（`electronmon` 监视 `desktop/` 下 js/html/css，改界面即重启 Electron）。Electron 使用 `SVI_SKIP_BACKEND=1`，不再自带起第二个 uvicorn；请保证 `.env` 里 **`SVI_API_PORT` 与 `dev:api` 端口一致**（默认 **8000**）。
   - **`npm run desktop:reload`**：单进程模式，仍由 Electron 拉起 uvicorn，子进程带 **`--reload`**（已设置 `SVI_UVICORN_RELOAD`）；改 `local_api` 会由 uvicorn 重载。改 `desktop/` 时更推荐用上面的 **`npm run dev`**（`electronmon` 会重载/重启窗口）。

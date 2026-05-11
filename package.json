@@ -4,6 +4,7 @@
   "private": true,
   "main": "desktop/main.js",
   "scripts": {
+    "start": "electron .",
     "desktop": "electron .",
     "desktop:dev": "electron .",
     "desktop:reload": "cross-env SVI_UVICORN_RELOAD=1 electron .",
